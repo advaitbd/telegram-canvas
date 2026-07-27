@@ -1,3 +1,4 @@
+import { checkOwnerPublishRate } from "../lib/rate-limits";
 /**
  * POST /internal/publish — Hermes plugin publishes an HTML artifact.
  *
@@ -18,7 +19,7 @@ import * as Artifacts from "../db/artifacts";
 import { MAX_REVISION_BYTES, MAX_ARTIFACTS_PER_SESSION, MAX_REVISIONS_PER_ARTIFACT } from "../lib/limits";
 import type { ArtifactUpdateEvent } from "../durable/artifact-room";
 import { jsonError, jsonOk, authErrorToResponse } from "../lib/http";
-
+import { getFeatureFlags, featureDisabledResponse } from "../lib/feature-flags";
 /** Expected shape of the publish request body. */
 interface PublishBody {
 	telegram_creator_id: string;
@@ -76,9 +77,21 @@ export async function handlePublish(
 			return jsonError(413, "HTML body exceeds maximum size");
 		}
 
+		// 4b. Feature flag kill switch
+		const flags = getFeatureFlags(env as Record<string, unknown>);
+		if (flags.publishDisabled) {
+			return featureDisabledResponse("Publishing");
+		}
+
 		// 5. Derive identity hashes
 		const ownerHash = await deriveOwnerHash(body.telegram_creator_id, env.IDENTITY_HMAC_KEY);
 		const sessionHash = await deriveSessionHash(body.hermes_session_id, env.IDENTITY_HMAC_KEY);
+
+		// Rate limit checks (owner checked here; session checked after session is resolved)
+		const ownerOk = await checkOwnerPublishRate(env.CANVAS_DB, ownerHash);
+		if (!ownerOk) {
+			return jsonError(429, "Publish rate limit exceeded");
+		}
 
 		// 6. Find or create session
 		let session = await Sessions.getSessionByHashes(env.CANVAS_DB, ownerHash, sessionHash);

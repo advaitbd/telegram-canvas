@@ -116,6 +116,8 @@ describe("Publish endpoint", () => {
 		)`).run();
 		await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_revision_ordinal ON artifact_revisions(artifact_id, ordinal)").run().catch(() => {});
 		await db.prepare("CREATE TABLE IF NOT EXISTS publisher_nonces (nonce TEXT PRIMARY KEY, expires_at INTEGER NOT NULL)").run();
+		await db.prepare("CREATE TABLE IF NOT EXISTS publisher_rate_limits (id INTEGER PRIMARY KEY AUTOINCREMENT, owner_hash TEXT NOT NULL, session_id TEXT NOT NULL, window_start INTEGER NOT NULL DEFAULT (unixepoch()))").run();
+		await db.prepare("CREATE INDEX IF NOT EXISTS idx_rate_owner ON publisher_rate_limits(owner_hash, window_start)").run().catch(() => {});
 	});
 
 	it("publishes a new artifact (first publish creates session)", async () => {

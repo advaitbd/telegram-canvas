@@ -72,6 +72,14 @@ export async function handleMaintenance(
 			.run();
 		results.stuck_revisions = stuckResult.meta.changes;
 
+		// 5. Clean stale rate limit records (>24h old)
+		const rateCutoff = now - 86400;
+		const rateResult = await env.CANVAS_DB
+			.prepare("DELETE FROM publisher_rate_limits WHERE window_start <= ?")
+			.bind(rateCutoff)
+			.run();
+		results.cleaned_nonces += rateResult.meta.changes;
+
 	} catch (err) {
 		// Log but never throw — maintenance failure should not crash the cron
 		console.error("Maintenance error:", err);

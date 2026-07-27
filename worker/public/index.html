@@ -1,13 +1,42 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Canvas</title>
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+<title>Canvas</title>
+<link rel="stylesheet" href="/styles.css" />
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-  <div id="app">Loading Canvas...</div>
-  <script type="module" src="/app.ts"></script>
+<div id="app">
+  <div id="loading-screen">Loading Canvas…</div>
+  <div id="session-picker" class="screen hidden">
+    <h2 class="screen-title">Sessions</h2>
+    <div id="session-list" class="list"></div>
+  </div>
+  <div id="artifact-gallery" class="screen hidden">
+    <button id="back-to-sessions" class="back-btn">← Back</button>
+    <h2 id="gallery-title" class="screen-title">Artifacts</h2>
+    <div id="artifact-list" class="list"></div>
+  </div>
+  <div id="artifact-viewer" class="screen hidden">
+    <button id="back-to-gallery" class="back-btn">← Back</button>
+    <h2 id="viewer-title" class="screen-title">Viewer</h2>
+    <div id="viewer-controls" class="controls">
+      <select id="revision-selector" class="revision-picker"></select>
+      <button id="btn-download" class="btn">Download</button>
+      <button id="btn-extend" class="btn">Extend 30d</button>
+      <button id="btn-delete" class="btn btn-danger">Delete</button>
+    </div>
+    <div id="iframe-container">
+      <iframe id="artifact-iframe" sandbox="allow-scripts" loading="lazy"></iframe>
+    </div>
+  </div>
+  <div id="error-screen" class="screen hidden">
+    <p id="error-message" class="error-text"></p>
+    <button id="btn-retry" class="btn">Retry</button>
+  </div>
+</div>
+<script type="module" src="/app.ts"></script>
 </body>
 </html>

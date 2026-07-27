@@ -1,0 +1,4 @@
+name: telegram-canvas
+version: "0.1"
+description: Publish HTML artifacts to Telegram Canvas from Hermes sessions
+toolset: canvas

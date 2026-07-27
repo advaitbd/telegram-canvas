@@ -1,0 +1,99 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CI: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend assets
+        run: npx vite build
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: npm test
+
+      - name: Secret scan
+        run: |
+          if grep -rE '(sk-[A-Za-z0-9]{20,}|-----BEGIN (RSA |EC )?PRIVATE KEY-----)' \
+            --include='*.{ts,js,json,py,yaml,yml,md,toml}' --exclude-dir=node_modules \
+            --exclude-dir=.git --exclude='*.example' .; then
+            echo "ERROR: Possible secret found in source files"
+            exit 1
+          fi
+
+  deploy:
+    needs: check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build frontend assets
+        run: npx vite build
+
+      - name: Deploy to Cloudflare Workers
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+
+      - name: Post-deploy smoke test
+        run: |
+          echo "=== Smoke test ==="
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://canvas.advaitdeshpande.com/)
+          if [ "$STATUS" != "200" ]; then
+            echo "ERROR: Homepage returned $STATUS"
+            exit 1
+          fi
+          echo "Homepage: $STATUS OK"
+
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://canvas.advaitdeshpande.com/api/health)
+          if [ "$STATUS" != "200" ]; then
+            echo "ERROR: Health endpoint returned $STATUS"
+            exit 1
+          fi
+          echo "Health: $STATUS OK"
+
+          SECURITY=$(curl -sI https://canvas.advaitdeshpande.com/ | grep -i "x-content-type-options")
+          if [ -z "$SECURITY" ]; then
+            echo "WARNING: Missing X-Content-Type-Options header"
+          else
+            echo "Security headers: present"
+          fi

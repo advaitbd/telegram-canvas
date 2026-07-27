@@ -1,5 +1,29 @@
 # Canvas Operations
 
+## Provisioned Cloudflare Resources
+
+| Resource | Name | ID / Details |
+|---|---|---|
+| Worker | `telegram-canvas` | Version `4fabe143-9d8a-43cf-806d-884b2b1ded59` |
+| D1 Database | `telegram-canvas` | `fa7685ec-cea5-49fb-ae03-a6f932a78234` |
+| R2 Bucket | `telegram-canvas-artifacts` | Standard storage class |
+| Durable Object | `ArtifactRoom` | SQLite-backed, v1 migration |
+| Worker Route | `canvas.advaitdeshpande.com/*` | Zone: advaitdeshpande.com |
+| DNS Record | `canvas.advaitdeshpande.com` | A → `192.0.2.1` (proxied) |
+| Cron Trigger | `0 3 * * *` | Daily maintenance |
+
+### Deployment Token
+
+The deploy token is stored as `CLOUDFLARE_CANVAS_DEPLOY_TOKEN` in `.bashrc`.
+It is **not** available in non-interactive shells. Use the following pattern
+for all wrangler/cloudflare commands:
+
+```bash
+bash -ic 'export CLOUDFLARE_API_TOKEN="$CLOUDFLARE_CANVAS_DEPLOY_TOKEN"; wrangler <command>' 2>/dev/null
+```
+
+The token is scoped to the subprocess and never printed.
+
 ## Secret Locations
 
 ### Worker Runtime Secrets (Cloudflare)
@@ -11,7 +35,7 @@ Set via `wrangler secret put` — never in code or config files:
 | `TELEGRAM_BOT_TOKEN` | BotFather | Telegram WebApp init-data HMAC verification |
 | `PUBLISHER_SECRET` | `openssl rand -hex 32` | HMAC signing of publish requests |
 | `IDENTITY_HMAC_KEY` | `openssl rand -hex 32` | Deterministic owner/session hash derivation |
-| `DOCUMENT_TOKEN_KEY` | `open ssl rand -hex 32` (v1) | Short-lived document tokens (to be removed per corrected auth model) |
+| `DOCUMENT_TOKEN_KEY` | `openssl rand -hex 32` | Short-lived document tokens |
 
 Set locally in `.dev.vars` (copied from `.dev.vars.example`):
 ```bash
@@ -46,6 +70,9 @@ export CANVAS_PUBLISHER_SECRET=<same as Worker PUBLISHER_SECRET>
 # Install
 cd worker && npm ci
 
+# Build frontend assets
+npm run build
+
 # Dev server (Vite + Wrangler)
 npm run dev
 
@@ -62,10 +89,10 @@ npx wrangler deploy --dry-run
 ## D1 Migrations
 
 ```bash
-# Local
+# Local (Miniflare)
 npx wrangler d1 migrations apply telegram-canvas --local
 
-# Remote (after Task 2 provisions the database)
+# Remote production database
 npx wrangler d1 migrations apply telegram-canvas --remote
 ```
 
@@ -73,6 +100,15 @@ npx wrangler d1 migrations apply telegram-canvas --remote
 
 Production: push to `main` → GitHub Actions deploy workflow.
 Preview: push to PR → deploy to preview worker (requires preview D1/R2 resources).
+
+Manual deploy:
+```bash
+bash -ic '
+export CLOUDFLARE_API_TOKEN="$CLOUDFLARE_CANVAS_DEPLOY_TOKEN"
+cd worker
+npx wrangler deploy
+' 2>/dev/null
+```
 
 ## Rollback
 
@@ -87,14 +123,21 @@ npx wrangler rollback
 ## Teardown
 
 ```bash
-# Delete the worker
-npx wrangler delete telegram-canvas
+# 1. Delete the DNS record for canvas.advaitdeshpande.com
+# Record ID: 4500490415cbccfb6099f21f64e50d55
 
-# Delete D1 database (do this AFTER confirming no worker references it)
-npx wrangler d1 delete telegram-canvas
+# 2. Delete the worker (this also removes routes and cron triggers)
+bash -ic 'export CLOUDFLARE_API_TOKEN="$CLOUDFLARE_CANVAS_DEPLOY_TOKEN"; wrangler delete telegram-canvas' 2>/dev/null
 
-# Delete R2 bucket (must be empty first)
-npx wrangler r2 bucket delete telegram-canvas-artifacts
+# 3. Delete D1 database (do this AFTER confirming no worker references it)
+bash -ic 'export CLOUDFLARE_API_TOKEN="$CLOUDFLARE_CANVAS_DEPLOY_TOKEN"; wrangler d1 delete telegram-canvas' 2>/dev/null
+
+# 4. Delete R2 bucket (must be empty first — manually delete all objects or
+#    use the R2 dashboard to empty it)
+bash -ic 'export CLOUDFLARE_API_TOKEN="$CLOUDFLARE_CANVAS_DEPLOY_TOKEN"; wrangler r2 bucket delete telegram-canvas-artifacts' 2>/dev/null
+
+# 5. Optionally delete the GitHub repository
+#    gh repo delete advaitbd/telegram-canvas
 ```
 
 ## Key Rotation

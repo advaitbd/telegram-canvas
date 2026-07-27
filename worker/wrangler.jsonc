@@ -1,4 +1,5 @@
 {
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
   "name": "telegram-canvas",
   "main": "src/index.ts",
   "compatibility_date": "2025-09-06",
@@ -12,13 +13,13 @@
     "ENVIRONMENT": "development"
   },
   "routes": [
-    { "pattern": "canvas.advaitdeshpande.com", "custom_domain": true }
+    { "pattern": "canvas.advaitdeshpande.com/*", "zone_name": "advaitdeshpande.com" }
   ],
   "d1_databases": [
     {
       "binding": "CANVAS_DB",
       "database_name": "telegram-canvas",
-      "database_id": "PLACEHOLDER"
+      "database_id": "fa7685ec-cea5-49fb-ae03-a6f932a78234"
     }
   ],
   "r2_buckets": [
@@ -31,14 +32,14 @@
     "bindings": [
       {
         "name": "ARTIFACT_ROOM",
-        "class_name": "ArtifactRoom",
+        "class_name": "ArtifactRoom"
       }
     ]
   },
   "migrations": [
     {
       "tag": "v1",
-      "new_classes": ["ArtifactRoom"]
+      "new_sqlite_classes": ["ArtifactRoom"]
     }
   ],
   "triggers": {

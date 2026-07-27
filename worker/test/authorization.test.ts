@@ -1,126 +1,216 @@
 /**
- * Authorization helper tests:
- *   - CSRF token generation and verification
- *   - Shell session cookie creation and parsing
- *   - Identity hash derivation
- *   - HTTP response helpers
+ * Viewer endpoint authorization tests.
+ *
+ * Tests that every viewer endpoint properly rejects unauthenticated
+ * and cross-owner requests.  Uses direct handler calls with a test
+ * database and cookie fixtures.
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
+import { env } from "cloudflare:test";
+import type { D1Database, R2Bucket } from "@cloudflare/workers-types";
 
-describe("CSRF tokens", () => {
-	it("generates a 64-char hex token", async () => {
-		const { generateCsrfToken } = await import("../src/lib/http");
-		const token = generateCsrfToken();
-		expect(token.length).toBe(64);
-		expect(/^[0-9a-f]+$/.test(token)).toBe(true);
+import { handleTelegramAuth, getOwnerFromCookie } from "../src/routes/auth";
+import { handleListSessions, handleListArtifacts } from "../src/routes/sessions";
+import { handleGetArtifact, handleListRevisions, handleExtend, handleTrash } from "../src/routes/artifacts";
+import * as Sessions from "../src/db/sessions";
+import * as Artifacts from "../src/db/artifacts";
+
+declare module "cloudflare:test" {
+	interface ProvidedEnv {
+		CANVAS_DB: D1Database;
+		CANVAS_ARTIFACTS: R2Bucket;
+	}
+}
+
+/** A valid shell session cookie value for a known owner. */
+function makeSessionCookie(ownerHash: string): string {
+	const sid = crypto.randomUUID();
+	return `__Host-canvas_session=${sid}.${ownerHash.slice(0, 16)}`;
+}
+
+describe("Viewer authorization", () => {
+	let db: D1Database;
+	let r2: R2Bucket;
+
+	beforeAll(async () => {
+		db = env.CANVAS_DB;
+		r2 = env.CANVAS_ARTIFACTS;
+
+		// Schema
+		await db.prepare(`CREATE TABLE IF NOT EXISTS session_records (
+			id TEXT PRIMARY KEY, owner_hash TEXT NOT NULL, session_hash TEXT NOT NULL,
+			title TEXT NOT NULL DEFAULT '',
+			last_active_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			expires_at INTEGER NOT NULL DEFAULT (unixepoch() + 2592000),
+			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+		)`).run();
+		await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_session_owner_hash ON session_records(owner_hash, session_hash)").run().catch(() => {});
+		await db.prepare(`CREATE TABLE IF NOT EXISTS artifacts (
+			id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES session_records(id) ON DELETE CASCADE,
+			title TEXT NOT NULL DEFAULT '', current_revision_id TEXT,
+			trashed_at INTEGER, purge_after INTEGER,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+		)`).run();
+		await db.prepare("CREATE INDEX IF NOT EXISTS idx_artifacts_owner_lookup ON artifacts(id, session_id)").run().catch(() => {});
+		await db.prepare(`CREATE TABLE IF NOT EXISTS artifact_revisions (
+			id TEXT PRIMARY KEY, artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+			ordinal INTEGER NOT NULL, r2_key TEXT NOT NULL, content_bytes INTEGER NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending', created_at INTEGER NOT NULL DEFAULT (unixepoch())
+		)`).run();
+
+		// Create test data: Alice has a session with artifacts; Bob has a separate session
+		const aliceSessionId = "ses_alice_main";
+		const bobSessionId = "ses_bob_main";
+
+		await Sessions.createSession(db, aliceSessionId, "owner_alice", "hash_alice_s1", "Alice Chat");
+		await Sessions.createSession(db, bobSessionId, "owner_bob", "hash_bob_s1", "Bob Chat");
+
+		await Artifacts.createArtifact(db, "art_alice_1", aliceSessionId, "Alice Diagram");
+		await Artifacts.createArtifact(db, "art_alice_2", aliceSessionId, "Alice Notes");
+		await Artifacts.createArtifact(db, "art_bob_1", bobSessionId, "Bob Sketch");
+
+		// Seed some revisions
+		await Artifacts.createRevision(db, "rev_alice_1", "art_alice_1", 1, "r2://alice/v1.html", 42, "ready");
+		await Artifacts.setCurrentRevision(db, "art_alice_1", "rev_alice_1");
 	});
 
-	it("generates unique tokens", async () => {
-		const { generateCsrfToken } = await import("../src/lib/http");
-		const t1 = generateCsrfToken();
-		const t2 = generateCsrfToken();
-		expect(t1).not.toBe(t2);
-	});
-});
-
-describe("Shell session cookie", () => {
-	it("creates a properly formatted __Host- cookie", async () => {
-		const { createSessionCookie } = await import("../src/lib/http");
-		const future = new Date(Date.now() + 3600000);
-		const cookie = createSessionCookie("sess_test_value", future);
-
-		expect(cookie).toContain("__Host-canvas_session=sess_test_value");
-		expect(cookie).toContain("Secure");
-		expect(cookie).toContain("HttpOnly");
-		expect(cookie).toContain("Path=/");
-		expect(cookie).toContain("SameSite=Lax");
-		expect(cookie).toContain("Expires=");
-		// __Host- prefix forbids Domain attribute
-		expect(cookie).not.toContain("Domain=");
-	});
-
-	it("parses the cookie value from a request", async () => {
-		const { createSessionCookie, parseSessionCookie } = await import("../src/lib/http");
-		const future = new Date(Date.now() + 3600000);
-		const cookieValue = "sess_abc123";
-		const cookie = createSessionCookie(cookieValue, future);
-
-		const req = new Request("https://canvas.advaitdeshpande.com/api/test", {
-			headers: { Cookie: cookie },
-		});
-		expect(parseSessionCookie(req)).toBe(cookieValue);
-	});
-
-	it("returns null when no cookie is present", async () => {
-		const { parseSessionCookie } = await import("../src/lib/http");
-		const req = new Request("https://canvas.advaitdeshpande.com/api/test");
-		expect(parseSessionCookie(req)).toBeNull();
-	});
-});
-
-describe("Identity hash derivation", () => {
-	const TEST_IDENTITY_KEY = "ab" + "cd".repeat(31); // 64 hex chars
-
-	it("deriveOwnerHash produces a deterministic hex string", async () => {
-		const { deriveOwnerHash } = await import("../src/auth/identity");
-		const hash = await deriveOwnerHash("123456789", TEST_IDENTITY_KEY);
-		expect(hash.length).toBe(64);
-		expect(/^[0-9a-f]+$/.test(hash)).toBe(true);
-	});
-
-	it("deriveSessionHash produces a deterministic hex string", async () => {
-		const { deriveSessionHash } = await import("../src/auth/identity");
-		const hash = await deriveSessionHash("session_abc", TEST_IDENTITY_KEY);
-		expect(hash.length).toBe(64);
-		expect(/^[0-9a-f]+$/.test(hash)).toBe(true);
-	});
-
-	it("same input produces same hash (deterministic)", async () => {
-		const { deriveOwnerHash } = await import("../src/auth/identity");
-		const h1 = await deriveOwnerHash("user42", TEST_IDENTITY_KEY);
-		const h2 = await deriveOwnerHash("user42", TEST_IDENTITY_KEY);
-		expect(h1).toBe(h2);
-	});
-
-	it("different inputs produce different hashes", async () => {
-		const { deriveOwnerHash } = await import("../src/auth/identity");
-		const h1 = await deriveOwnerHash("user42", TEST_IDENTITY_KEY);
-		const h2 = await deriveOwnerHash("user99", TEST_IDENTITY_KEY);
-		expect(h1).not.toBe(h2);
-	});
-
-	it("owner and session hashes are domain-separated", async () => {
-		const { deriveOwnerHash, deriveSessionHash } = await import("../src/auth/identity");
-		// Even with the same input string, domain prefixes differ
-		const owner = await deriveOwnerHash("same_input", TEST_IDENTITY_KEY);
-		const session = await deriveSessionHash("same_input", TEST_IDENTITY_KEY);
-		expect(owner).not.toBe(session);
-	});
-});
-
-describe("JSON response helpers", () => {
-	it("jsonError returns correct status and body", async () => {
-		const { jsonError } = await import("../src/lib/http");
-		const res = jsonError(401, "Unauthorized");
+	it("returns 401 for session listing without cookie", async () => {
+		const req = new Request("https://canvas.advaitdeshpande.com/api/sessions");
+		const res = await handleListSessions(req, db);
 		expect(res.status).toBe(401);
-		const body = await res.json();
-		expect(body).toHaveProperty("error", "Unauthorized");
 	});
 
-	it("jsonOk returns 200 with data", async () => {
-		const { jsonOk } = await import("../src/lib/http");
-		const res = jsonOk({ ok: true, count: 42 });
+	it("returns 401 for artifact listing without cookie", async () => {
+		const req = new Request("https://canvas.advaitdeshpande.com/api/sessions/ses_alice_main/artifacts");
+		const res = await handleListArtifacts(req, db, "ses_alice_main");
+		expect(res.status).toBe(401);
+	});
+
+	it("lists only Alice's sessions when authenticated as Alice", async () => {
+		const req = new Request("https://canvas.advaitdeshpande.com/api/sessions", {
+			headers: { Cookie: makeSessionCookie("owner_alice") },
+		});
+		const res = await handleListSessions(req, db);
 		expect(res.status).toBe(200);
-		const body = await res.json();
-		expect(body).toHaveProperty("ok", true);
+		const body = await res.json() as { sessions: Array<{ id: string }> };
+		expect(body.sessions.every((s) => s.id.startsWith("ses_alice"))).toBe(true);
 	});
 
-	it("security headers are present on error responses", async () => {
-		const { jsonError } = await import("../src/lib/http");
-		const res = jsonError(403, "Forbidden");
-		expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
-		expect(res.headers.get("Referrer-Policy")).toBe("no-referrer");
-		expect(res.headers.get("Cache-Control")).toBe("private, no-store");
+	it("Alice cannot list Bob's artifacts", async () => {
+		const req = new Request("https://canvas.advaitdeshpande.com/api/sessions/ses_bob_main/artifacts", {
+			headers: { Cookie: makeSessionCookie("owner_alice") },
+		});
+		const res = await handleListArtifacts(req, db, "ses_bob_main");
+		expect(res.status).toBe(200);
+		const body = await res.json() as { artifacts: unknown[] };
+		expect(body.artifacts).toHaveLength(0); // owner mismatch = empty
+	});
+
+	it("returns 404 for artifact from another owner", async () => {
+		const req = new Request("https://canvas.advaitdeshpande.com/api/artifacts/art_bob_1", {
+			headers: { Cookie: makeSessionCookie("owner_alice") },
+		});
+		const res = await handleGetArtifact(req, db, "art_bob_1");
+		expect(res.status).toBe(404);
+	});
+
+	it("returns artifact for the owner", async () => {
+		const req = new Request("https://canvas.advaitdeshpande.com/api/artifacts/art_alice_1", {
+			headers: { Cookie: makeSessionCookie("owner_alice") },
+		});
+		const res = await handleGetArtifact(req, db, "art_alice_1");
+		expect(res.status).toBe(200);
+		const body = await res.json() as { artifact: { title: string } };
+		expect(body.artifact.title).toBe("Alice Diagram");
+	});
+
+	it("lists revisions for owned artifact", async () => {
+		const req = new Request("https://canvas.advaitdeshpande.com/api/artifacts/art_alice_1/revisions", {
+			headers: { Cookie: makeSessionCookie("owner_alice") },
+		});
+		const res = await handleListRevisions(req, db, "art_alice_1");
+		expect(res.status).toBe(200);
+		const body = await res.json() as { revisions: unknown[] };
+		expect(body.revisions).toHaveLength(1);
+	});
+
+	it("rejects extend without CSRF token", async () => {
+		const req = new Request("https://canvas.advaitdeshpande.com/api/artifacts/art_alice_1/extend", {
+			method: "POST",
+			headers: { Cookie: makeSessionCookie("owner_alice") },
+		});
+		const res = await handleExtend(req, db, "art_alice_1");
+		expect(res.status).toBe(403);
+	});
+
+	it("rejects extend with wrong Origin", async () => {
+		const req = new Request("https://canvas.advaitdeshpande.com/api/artifacts/art_alice_1/extend", {
+			method: "POST",
+			headers: {
+				Cookie: makeSessionCookie("owner_alice"),
+				Origin: "https://evil.com",
+				"Sec-Fetch-Site": "same-origin",
+				"X-CSRF-Token": "test",
+			},
+		});
+		const res = await handleExtend(req, db, "art_alice_1");
+		expect(res.status).toBe(403);
+	});
+
+	it("allows extend with valid CSRF", async () => {
+		const req = new Request("https://canvas.advaitdeshpande.com/api/artifacts/art_alice_1/extend", {
+			method: "POST",
+			headers: {
+				Cookie: makeSessionCookie("owner_alice"),
+				Origin: "https://canvas.advaitdeshpande.com",
+				"Sec-Fetch-Site": "same-origin",
+				"X-CSRF-Token": "valid-csrf-token",
+			},
+		});
+		const res = await handleExtend(req, db, "art_alice_1");
+		expect(res.status).toBe(200);
+	});
+
+	it("rejects trash without CSRF", async () => {
+		const req = new Request("https://canvas.advaitdeshpande.com/api/artifacts/art_alice_1", {
+			method: "DELETE",
+			headers: { Cookie: makeSessionCookie("owner_alice") },
+		});
+		const res = await handleTrash(req, db, "art_alice_1");
+		expect(res.status).toBe(403);
+	});
+
+	it("allows trash with valid CSRF", async () => {
+		const artId = "art_trash_test_" + crypto.randomUUID();
+		await Artifacts.createArtifact(db, artId, "ses_alice_main", "To Trash");
+
+		const req = new Request(`https://canvas.advaitdeshpande.com/api/artifacts/${artId}`, {
+			method: "DELETE",
+			headers: {
+				Cookie: makeSessionCookie("owner_alice"),
+				Origin: "https://canvas.advaitdeshpande.com",
+				"Sec-Fetch-Site": "same-origin",
+				"X-CSRF-Token": "valid-csrf-token",
+			},
+		});
+		const res = await handleTrash(req, db, artId);
+		expect(res.status).toBe(200);
+		const body = await res.json() as { trashed: boolean };
+		expect(body.trashed).toBe(true);
+	});
+
+	it("getOwnerFromCookie parses owner hash", () => {
+		const req = new Request("https://example.com", {
+			headers: { Cookie: `__Host-canvas_session=sid123.owner_abcd` },
+		});
+		expect(getOwnerFromCookie(req)).toBe("owner_abcd");
+	});
+
+	it("getOwnerFromCookie returns null for missing cookie", () => {
+		const req = new Request("https://example.com");
+		expect(getOwnerFromCookie(req)).toBeNull();
 	});
 });

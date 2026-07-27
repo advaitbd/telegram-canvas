@@ -16,8 +16,8 @@ import { deriveOwnerHash, deriveSessionHash } from "../auth/identity";
 import * as Sessions from "../db/sessions";
 import * as Artifacts from "../db/artifacts";
 import { MAX_REVISION_BYTES, MAX_ARTIFACTS_PER_SESSION, MAX_REVISIONS_PER_ARTIFACT } from "../lib/limits";
+import type { ArtifactUpdateEvent } from "../durable/artifact-room";
 import { jsonError, jsonOk, authErrorToResponse } from "../lib/http";
-import type { ArtifactUpdateEvent, ArtifactRoom } from "../durable/artifact-room";
 
 /** Expected shape of the publish request body. */
 interface PublishBody {
@@ -34,7 +34,7 @@ export async function handlePublish(
 	env: {
 		CANVAS_DB: D1Database;
 		CANVAS_ARTIFACTS: R2Bucket;
-		ARTIFACT_ROOM: DurableObjectNamespace<ArtifactRoom>;
+		ARTIFACT_ROOM: DurableObjectNamespace;
 		PUBLISHER_SECRET: string;
 		IDENTITY_HMAC_KEY: string;
 	},
@@ -216,7 +216,7 @@ async function pruneOldRevisions(
  * Broadcast an update event to the session's Durable Object room.
  */
 async function broadcastUpdate(
-	env: { ARTIFACT_ROOM: DurableObjectNamespace<ArtifactRoom> },
+	env: { ARTIFACT_ROOM: DurableObjectNamespace },
 	event: ArtifactUpdateEvent,
 ): Promise<void> {
 	try {

@@ -25,15 +25,18 @@
       <ul id="artifact-list" class="list" aria-label="Artifacts in this session"></ul>
     </section>
     <section id="artifact-viewer" class="screen hidden" aria-labelledby="viewer-title">
-      <div class="action-row"><button id="back-to-gallery" class="text-button" type="button">← Session artifacts</button><button id="browse-all" class="text-button" type="button">Browse all canvases</button></div>
-      <div><p id="viewer-session" class="eyebrow">CANVAS</p><h2 id="viewer-title">Viewer</h2></div>
-      <div id="viewer-controls" class="controls">
-        <label class="visually-hidden" for="revision-selector">Revision</label><select id="revision-selector" class="revision-picker"></select>
+      <h2 id="viewer-title" class="visually-hidden">Canvas artifact</h2>
+      <div id="iframe-container"><iframe id="artifact-iframe" title="Canvas artifact" sandbox="allow-scripts" loading="lazy"></iframe></div>
+      <button id="back-to-gallery" class="viewer-float viewer-back" type="button" aria-label="Back to session artifacts">←</button>
+      <button id="viewer-menu-toggle" class="viewer-float viewer-menu-toggle" type="button" aria-label="Canvas actions" aria-controls="viewer-menu" aria-expanded="false">⋮</button>
+      <section id="viewer-menu" class="viewer-menu" aria-label="Canvas actions" hidden>
+        <label class="visually-hidden" for="revision-selector">Revision</label>
+        <select id="revision-selector" class="revision-picker"></select>
+        <button id="browse-all" class="secondary-button" type="button">Browse all canvases</button>
         <button id="btn-download" class="secondary-button" type="button">Download</button>
         <button id="btn-extend" class="secondary-button" type="button">Extend 30d</button>
         <button id="btn-delete" class="danger-button" type="button">Delete</button>
-      </div>
-      <div id="iframe-container"><iframe id="artifact-iframe" title="Canvas artifact" sandbox="allow-scripts" loading="lazy"></iframe></div>
+      </section>
     </section>
     <section id="error-screen" class="screen hidden" aria-live="assertive">
       <p id="error-message" class="error-text"></p><button id="btn-retry" class="secondary-button" type="button">Retry</button>

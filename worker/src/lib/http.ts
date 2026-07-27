@@ -51,6 +51,10 @@ export function jsonOk(data: Record<string, unknown>, status = 200): Response {
  * Never echoes raw identifiers or credential material in the error message.
  */
 export function authErrorToResponse(err: unknown): Response {
+	// Size limit errors get 413 regardless of auth context
+	if (err instanceof Error && err.message.includes("exceeds maximum size")) {
+		return jsonError(413, "Payload Too Large");
+	}
 	if (err instanceof PublisherAuthError) {
 		return jsonError(401, "Unauthorized");
 	}
@@ -65,9 +69,6 @@ export function authErrorToResponse(err: unknown): Response {
 	}
 	if (err instanceof Error && err.message === "Invalid HMAC hash in init data") {
 		return jsonError(403, "Forbidden");
-	}
-	if (err instanceof Error && (err.message.includes("exceeds maximum size"))) {
-		return jsonError(413, "Payload Too Large");
 	}
 	return jsonError(500, "Internal Server Error");
 }

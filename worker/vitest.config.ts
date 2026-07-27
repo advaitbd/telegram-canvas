@@ -6,8 +6,8 @@ export default defineWorkersConfig({
       workers: {
         wrangler: { configPath: "./wrangler.jsonc" },
         miniflare: {
-          // D1 test stub — no real database needed
           d1Databases: ["CANVAS_DB"],
+          r2Buckets: ["CANVAS_ARTIFACTS"],
         },
       },
     },

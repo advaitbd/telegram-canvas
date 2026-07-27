@@ -28,14 +28,13 @@ export interface RevisionRecord {
 	ordinal: number;
 	r2_key: string;
 	content_bytes: number;
+	status: string;
 	created_at: number;
 }
 
 // ---------------------------------------------------------------------------
 // Artifact CRUD
 // ---------------------------------------------------------------------------
-
-/** Verify the caller owns the session the artifact belongs to. */
 
 /** Count non-purged (trashed or active) artifacts in a session. */
 export async function countArtifactsInSession(
@@ -44,13 +43,10 @@ export async function countArtifactsInSession(
 ): Promise<number> {
 	const row = await db
 		.prepare(
-			`SELECT COUNT(*) AS cnt
-       FROM artifacts
-       WHERE session_id = ? AND (purge_after IS NULL OR purge_after > unixepoch())`,
+			"SELECT COUNT(*) AS cnt FROM artifacts WHERE session_id = ? AND (purge_after IS NULL OR purge_after > unixepoch())",
 		)
 		.bind(session_id)
 		.first<{ cnt: number }>();
-
 	return row?.cnt ?? 0;
 }
 
@@ -63,13 +59,9 @@ export async function createArtifact(
 ): Promise<string> {
 	const now = Math.floor(Date.now() / 1000);
 	await db
-		.prepare(
-			`INSERT INTO artifacts (id, session_id, title, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?)`,
-		)
+		.prepare("INSERT INTO artifacts (id, session_id, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?)")
 		.bind(id, session_id, title.slice(0, 160), now, now)
 		.run();
-
 	return id;
 }
 
@@ -82,14 +74,12 @@ export async function getArtifact(
 	const row = await db
 		.prepare(
 			`SELECT a.id, a.session_id, a.title, a.current_revision_id,
-               a.trashed_at, a.purge_after, a.created_at, a.updated_at
-       FROM artifacts a
-       JOIN session_records s ON s.id = a.session_id
-       WHERE a.id = ? AND s.owner_hash = ?`,
+				a.trashed_at, a.purge_after, a.created_at, a.updated_at
+			FROM artifacts a JOIN session_records s ON s.id = a.session_id
+			WHERE a.id = ? AND s.owner_hash = ?`,
 		)
 		.bind(artifact_id, owner_hash)
 		.first<ArtifactRecord>();
-
 	return row ?? null;
 }
 
@@ -102,15 +92,13 @@ export async function listArtifacts(
 	const rows = await db
 		.prepare(
 			`SELECT a.id, a.session_id, a.title, a.current_revision_id,
-               a.trashed_at, a.purge_after, a.created_at, a.updated_at
-       FROM artifacts a
-       JOIN session_records s ON s.id = a.session_id
-       WHERE a.session_id = ? AND s.owner_hash = ? AND a.trashed_at IS NULL
-       ORDER BY a.created_at DESC`,
+				a.trashed_at, a.purge_after, a.created_at, a.updated_at
+			FROM artifacts a JOIN session_records s ON s.id = a.session_id
+			WHERE a.session_id = ? AND s.owner_hash = ? AND a.trashed_at IS NULL
+			ORDER BY a.created_at DESC`,
 		)
 		.bind(session_id, owner_hash)
 		.all<ArtifactRecord>();
-
 	return rows.results ?? [];
 }
 
@@ -122,20 +110,16 @@ export async function trashArtifact(
 ): Promise<boolean> {
 	const now = Math.floor(Date.now() / 1000);
 	const purge = now + TRASH_RETENTION_DAYS * 86400;
-
 	const result = await db
 		.prepare(
-			`UPDATE artifacts
-       SET trashed_at = ?, purge_after = ?, updated_at = ?
-       WHERE id = ? AND id IN (
-         SELECT a.id FROM artifacts a
-         JOIN session_records s ON s.id = a.session_id
-         WHERE a.id = ? AND s.owner_hash = ?
-       )`,
+			`UPDATE artifacts SET trashed_at = ?, purge_after = ?, updated_at = ?
+			WHERE id = ? AND id IN (
+				SELECT a.id FROM artifacts a JOIN session_records s ON s.id = a.session_id
+				WHERE a.id = ? AND s.owner_hash = ?
+			)`,
 		)
 		.bind(now, purge, now, artifact_id, artifact_id, owner_hash)
 		.run();
-
 	return result.meta.changes > 0;
 }
 
@@ -145,13 +129,11 @@ export async function selectPurgeCandidates(db: D1Database): Promise<ArtifactRec
 	const rows = await db
 		.prepare(
 			`SELECT id, session_id, title, current_revision_id,
-               trashed_at, purge_after, created_at, updated_at
-       FROM artifacts
-       WHERE purge_after IS NOT NULL AND purge_after <= ?`,
+				trashed_at, purge_after, created_at, updated_at
+			FROM artifacts WHERE purge_after IS NOT NULL AND purge_after <= ?`,
 		)
 		.bind(now)
 		.all<ArtifactRecord>();
-
 	return rows.results ?? [];
 }
 
@@ -164,7 +146,6 @@ export async function deleteArtifactPermanent(
 		.prepare("DELETE FROM artifacts WHERE id = ?")
 		.bind(artifact_id)
 		.run();
-
 	return result.meta.changes > 0;
 }
 
@@ -180,20 +161,19 @@ export async function createRevision(
 	ordinal: number,
 	r2_key: string,
 	content_bytes: number,
+	status = "pending",
 ): Promise<string> {
 	const now = Math.floor(Date.now() / 1000);
 	await db
 		.prepare(
-			`INSERT INTO artifact_revisions (id, artifact_id, ordinal, r2_key, content_bytes, created_at)
-       VALUES (?, ?, ?, ?, ?, ?)`,
+			"INSERT INTO artifact_revisions (id, artifact_id, ordinal, r2_key, content_bytes, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
 		)
-		.bind(id, artifact_id, ordinal, r2_key, content_bytes, now)
+		.bind(id, artifact_id, ordinal, r2_key, content_bytes, status, now)
 		.run();
-
 	return id;
 }
 
-/** Set the artifact's current_revision_id. */
+/** Set the artifact's current_revision_id and update the revision status. */
 export async function setCurrentRevision(
 	db: D1Database,
 	artifact_id: string,
@@ -201,11 +181,34 @@ export async function setCurrentRevision(
 ): Promise<void> {
 	const now = Math.floor(Date.now() / 1000);
 	await db
-		.prepare(
-			"UPDATE artifacts SET current_revision_id = ?, updated_at = ? WHERE id = ?",
-		)
+		.prepare("UPDATE artifacts SET current_revision_id = ?, updated_at = ? WHERE id = ?")
 		.bind(revision_id, now, artifact_id)
 		.run();
+}
+
+/** Update a revision's status (pending -> ready | failed). */
+export async function updateRevisionStatus(
+	db: D1Database,
+	revision_id: string,
+	status: string,
+): Promise<boolean> {
+	const result = await db
+		.prepare("UPDATE artifact_revisions SET status = ? WHERE id = ?")
+		.bind(status, revision_id)
+		.run();
+	return result.meta.changes > 0;
+}
+
+/** Get the next ordinal for a new revision. */
+export async function nextRevisionOrdinal(
+	db: D1Database,
+	artifact_id: string,
+): Promise<number> {
+	const row = await db
+		.prepare("SELECT COALESCE(MAX(ordinal), 0) + 1 AS next FROM artifact_revisions WHERE artifact_id = ?")
+		.bind(artifact_id)
+		.first<{ next: number }>();
+	return row?.next ?? 1;
 }
 
 /** List revisions for an artifact, newest first. */
@@ -215,18 +218,15 @@ export async function listRevisions(
 ): Promise<RevisionRecord[]> {
 	const rows = await db
 		.prepare(
-			`SELECT id, artifact_id, ordinal, r2_key, content_bytes, created_at
-       FROM artifact_revisions
-       WHERE artifact_id = ?
-       ORDER BY ordinal DESC`,
+			`SELECT id, artifact_id, ordinal, r2_key, content_bytes, status, created_at
+			FROM artifact_revisions WHERE artifact_id = ? ORDER BY ordinal DESC`,
 		)
 		.bind(artifact_id)
 		.all<RevisionRecord>();
-
 	return rows.results ?? [];
 }
 
-/** Get the N oldest revisions for pruning (ordered oldest first). */
+/** Select revisions BEYOND keep_count (oldest first) for pruning. */
 export async function selectOldestRevisions(
 	db: D1Database,
 	artifact_id: string,
@@ -234,16 +234,11 @@ export async function selectOldestRevisions(
 ): Promise<RevisionRecord[]> {
 	const rows = await db
 		.prepare(
-			`SELECT id, artifact_id, ordinal, r2_key, content_bytes, created_at
-       FROM artifact_revisions
-       WHERE artifact_id = ?
-       ORDER BY ordinal ASC
-       LIMIT ?`,
+			`SELECT id, artifact_id, ordinal, r2_key, content_bytes, status, created_at
+			FROM artifact_revisions WHERE artifact_id = ? ORDER BY ordinal ASC`,
 		)
-		.bind(artifact_id, Math.max(0, keep_count))
+		.bind(artifact_id)
 		.all<RevisionRecord>();
-
-	// We return the ones BEYOND keep_count
 	const all = rows.results ?? [];
 	return all.slice(keep_count);
 }
@@ -254,17 +249,11 @@ export async function deleteRevisions(
 	revision_ids: string[],
 ): Promise<number> {
 	if (revision_ids.length === 0) return 0;
-
-	// D1 prepared statements don't support IN with a list directly,
-	// so we build placeholders.
 	const placeholders = revision_ids.map(() => "?").join(",");
 	const result = await db
-		.prepare(
-			`DELETE FROM artifact_revisions WHERE id IN (${placeholders})`,
-		)
+		.prepare(`DELETE FROM artifact_revisions WHERE id IN (${placeholders})`)
 		.bind(...revision_ids)
 		.run();
-
 	return result.meta.changes;
 }
 
@@ -274,11 +263,8 @@ export async function selectRevisionR2Keys(
 	artifact_id: string,
 ): Promise<string[]> {
 	const rows = await db
-		.prepare(
-			"SELECT r2_key FROM artifact_revisions WHERE artifact_id = ?",
-		)
+		.prepare("SELECT r2_key FROM artifact_revisions WHERE artifact_id = ?")
 		.bind(artifact_id)
 		.all<{ r2_key: string }>();
-
 	return (rows.results ?? []).map((r) => r.r2_key);
 }

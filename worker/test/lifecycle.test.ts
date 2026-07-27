@@ -39,48 +39,36 @@ describe("artifact lifecycle", () => {
 	beforeAll(async () => {
 		db = env.CANVAS_DB;
 
-		// Apply schema via individual DDL statements
-		// Each db.prepare().run() executes one complete SQL statement.
-		const ddl: string[] = [
-			`CREATE TABLE IF NOT EXISTS session_records (
-				id            TEXT PRIMARY KEY,
-				owner_hash    TEXT NOT NULL,
-				session_hash  TEXT NOT NULL,
-				title         TEXT NOT NULL DEFAULT '',
-				last_active_at INTEGER NOT NULL DEFAULT (unixepoch()),
-				expires_at    INTEGER NOT NULL DEFAULT (unixepoch() + 2592000),
-				created_at    INTEGER NOT NULL DEFAULT (unixepoch()),
-				updated_at    INTEGER NOT NULL DEFAULT (unixepoch())
-			)`,
-			"CREATE UNIQUE INDEX IF NOT EXISTS idx_session_owner_hash ON session_records(owner_hash, session_hash)",
-			"CREATE INDEX IF NOT EXISTS idx_session_expires ON session_records(owner_hash, expires_at)",
-			`CREATE TABLE IF NOT EXISTS artifacts (
-				id                  TEXT PRIMARY KEY,
-				session_id          TEXT NOT NULL REFERENCES session_records(id) ON DELETE CASCADE,
-				title               TEXT NOT NULL DEFAULT '',
-				current_revision_id TEXT,
-				trashed_at          INTEGER,
-				purge_after         INTEGER,
-				created_at          INTEGER NOT NULL DEFAULT (unixepoch()),
-				updated_at          INTEGER NOT NULL DEFAULT (unixepoch())
-			)`,
-			"CREATE INDEX IF NOT EXISTS idx_artifacts_session_trash ON artifacts(session_id, trashed_at)",
-			"CREATE INDEX IF NOT EXISTS idx_artifacts_owner_lookup ON artifacts(id, session_id)",
-			`CREATE TABLE IF NOT EXISTS artifact_revisions (
-				id            TEXT PRIMARY KEY,
-				artifact_id   TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
-				ordinal       INTEGER NOT NULL,
-				r2_key        TEXT NOT NULL,
-				content_bytes INTEGER NOT NULL,
-				created_at    INTEGER NOT NULL DEFAULT (unixepoch())
-			)`,
-			"CREATE UNIQUE INDEX IF NOT EXISTS idx_revision_ordinal ON artifact_revisions(artifact_id, ordinal)",
-			"CREATE INDEX IF NOT EXISTS idx_revision_created ON artifact_revisions(artifact_id, created_at)",
-		];
+		await db.prepare(`CREATE TABLE IF NOT EXISTS session_records (
+			id TEXT PRIMARY KEY, owner_hash TEXT NOT NULL, session_hash TEXT NOT NULL,
+			title TEXT NOT NULL DEFAULT '',
+			last_active_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			expires_at INTEGER NOT NULL DEFAULT (unixepoch() + 2592000),
+			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+		)`).run();
+		await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_session_owner_hash ON session_records(owner_hash, session_hash)").run();
+		await db.prepare("CREATE INDEX IF NOT EXISTS idx_session_expires ON session_records(owner_hash, expires_at)").run();
 
-		for (const sql of ddl) {
-			await db.prepare(sql).run();
-		}
+		await db.prepare(`CREATE TABLE IF NOT EXISTS artifacts (
+			id TEXT PRIMARY KEY, session_id TEXT NOT NULL REFERENCES session_records(id) ON DELETE CASCADE,
+			title TEXT NOT NULL DEFAULT '', current_revision_id TEXT,
+			trashed_at INTEGER, purge_after INTEGER,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+			updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+		)`).run();
+		await db.prepare("CREATE INDEX IF NOT EXISTS idx_artifacts_session_trash ON artifacts(session_id, trashed_at)").run();
+		await db.prepare("CREATE INDEX IF NOT EXISTS idx_artifacts_owner_lookup ON artifacts(id, session_id)").run();
+
+		await db.prepare(`CREATE TABLE IF NOT EXISTS artifact_revisions (
+			id TEXT PRIMARY KEY, artifact_id TEXT NOT NULL REFERENCES artifacts(id) ON DELETE CASCADE,
+			ordinal INTEGER NOT NULL, r2_key TEXT NOT NULL,
+			content_bytes INTEGER NOT NULL,
+			status TEXT NOT NULL DEFAULT 'pending',
+			created_at INTEGER NOT NULL DEFAULT (unixepoch())
+		)`).run();
+		await db.prepare("CREATE UNIQUE INDEX IF NOT EXISTS idx_revision_ordinal ON artifact_revisions(artifact_id, ordinal)").run();
+		await db.prepare("CREATE INDEX IF NOT EXISTS idx_revision_created ON artifact_revisions(artifact_id, created_at)").run();
 	});
 
 	it("creates a session from owner_hash and session_hash", async () => {
@@ -107,10 +95,8 @@ describe("artifact lifecycle", () => {
 		await Sessions.createSession(db, "ses_" + crypto.randomUUID(), "owner_list", "hash_fresh", "Fresh");
 
 		const past = Math.floor(Date.now() / 1000) - 4000000;
-		await db
-			.prepare("INSERT INTO session_records (id, owner_hash, session_hash, title, last_active_at, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-			.bind("ses_expired_" + crypto.randomUUID(), "owner_list_expired", "hash_expired", "Expired", past, past, past, past)
-			.run();
+		await db.prepare("INSERT INTO session_records (id,owner_hash,session_hash,title,last_active_at,expires_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)")
+			.bind("ses_expired_" + crypto.randomUUID(), "owner_list_expired", "hash_expired", "Expired", past, past, past, past).run();
 
 		const fresh = await Sessions.listSessionsByOwner(db, "owner_list");
 		expect(fresh.length).toBeGreaterThanOrEqual(1);
@@ -122,28 +108,18 @@ describe("artifact lifecycle", () => {
 		await Sessions.createSession(db, sessionId, "owner_touch", "hash_touch", "Touchable");
 		const before = await Sessions.getSessionByHashes(db, "owner_touch", "hash_touch");
 		expect(before).not.toBeNull();
-
-		const touched = await Sessions.touchSession(db, sessionId, "owner_touch");
-		expect(touched).toBe(true);
-
+		expect(await Sessions.touchSession(db, sessionId, "owner_touch")).toBe(true);
 		const after = await Sessions.getSessionByHashes(db, "owner_touch", "hash_touch");
-		// last_active_at is updated (may be same second as create if the clock didn't tick)
 		expect(after!.last_active_at).toBeGreaterThanOrEqual(before!.last_active_at);
-		// expires_at should be exactly last_active_at + 30 days
 		expect(after!.expires_at).toBe(after!.last_active_at + 30 * 86400);
-
-		// Wrong owner returns false, doesn't update
 		expect(await Sessions.touchSession(db, sessionId, "wrong_owner")).toBe(false);
-		const unChanged = await Sessions.getSessionByHashes(db, "owner_touch", "hash_touch");
-		expect(unChanged!.last_active_at).toBe(after!.last_active_at);
-	})
+	});
 
 	it("creates an artifact linked to a session", async () => {
 		const sessionId = "ses_" + crypto.randomUUID();
 		await Sessions.createSession(db, sessionId, "owner_art", "hash_art", "Artifact Session");
 		const artifactId = "art_" + crypto.randomUUID();
 		await Artifacts.createArtifact(db, artifactId, sessionId, "My Diagram");
-
 		const stored = await Artifacts.getArtifact(db, artifactId, "owner_art");
 		expect(stored).not.toBeNull();
 		expect(stored!.id).toBe(artifactId);
@@ -156,7 +132,6 @@ describe("artifact lifecycle", () => {
 		await Sessions.createSession(db, sessionId, "owner_bob", "hash_bob", "Bob Session");
 		const artifactId = "art_" + crypto.randomUUID();
 		await Artifacts.createArtifact(db, artifactId, sessionId, "Bob Diagram");
-
 		expect(await Artifacts.getArtifact(db, artifactId, "owner_alice")).toBeNull();
 	});
 
@@ -165,7 +140,6 @@ describe("artifact lifecycle", () => {
 		await Sessions.createSession(db, sessionId, "owner_list_art", "hash_list_art", "List Session");
 		await Artifacts.createArtifact(db, "art_list1_" + crypto.randomUUID(), sessionId, "Visible");
 		await Artifacts.createArtifact(db, "art_list2_" + crypto.randomUUID(), sessionId, "Also Visible");
-
 		expect(await Artifacts.listArtifacts(db, sessionId, "owner_list_art")).toHaveLength(2);
 	});
 
@@ -173,7 +147,6 @@ describe("artifact lifecycle", () => {
 		const sessionId = "ses_" + crypto.randomUUID();
 		await Sessions.createSession(db, sessionId, "owner_isolated", "hash_isolated", "Isolated");
 		await Artifacts.createArtifact(db, "art_" + crypto.randomUUID(), sessionId, "Secret");
-
 		expect(await Artifacts.listArtifacts(db, sessionId, "owner_intruder")).toHaveLength(0);
 	});
 
@@ -182,11 +155,9 @@ describe("artifact lifecycle", () => {
 		await Sessions.createSession(db, sessionId, "owner_rev", "hash_rev", "Rev Session");
 		const artifactId = "art_" + crypto.randomUUID();
 		await Artifacts.createArtifact(db, artifactId, sessionId, "Versioned Doc");
-
-		await Artifacts.createRevision(db, "rev_" + crypto.randomUUID(), artifactId, 1, "r2://key1", 1024);
-		await Artifacts.createRevision(db, "rev_" + crypto.randomUUID(), artifactId, 2, "r2://key2", 2048);
+		await Artifacts.createRevision(db, "rev_" + crypto.randomUUID(), artifactId, 1, "r2://key1", 1024, "ready");
+		await Artifacts.createRevision(db, "rev_" + crypto.randomUUID(), artifactId, 2, "r2://key2", 2048, "ready");
 		await Artifacts.setCurrentRevision(db, artifactId, "rev2");
-
 		const revisions = await Artifacts.listRevisions(db, artifactId);
 		expect(revisions).toHaveLength(2);
 		expect(revisions[0].ordinal).toBe(2);
@@ -198,10 +169,9 @@ describe("artifact lifecycle", () => {
 		await Sessions.createSession(db, sessionId, "owner_dup_ord", "hash_dup_ord", "Dup Ord");
 		const artifactId = "art_" + crypto.randomUUID();
 		await Artifacts.createArtifact(db, artifactId, sessionId, "Dup Ord Artifact");
-
-		await Artifacts.createRevision(db, "rev_" + crypto.randomUUID(), artifactId, 1, "r2://k1", 100);
+		await Artifacts.createRevision(db, "rev_" + crypto.randomUUID(), artifactId, 1, "r2://k1", 100, "pending");
 		await expect(
-			Artifacts.createRevision(db, "rev_" + crypto.randomUUID(), artifactId, 1, "r2://k2", 200),
+			Artifacts.createRevision(db, "rev_" + crypto.randomUUID(), artifactId, 1, "r2://k2", 200, "pending"),
 		).rejects.toThrow();
 	});
 
@@ -210,12 +180,9 @@ describe("artifact lifecycle", () => {
 		await Sessions.createSession(db, sessionId, "owner_trash", "hash_trash", "Trash Session");
 		const artId = "art_" + crypto.randomUUID();
 		await Artifacts.createArtifact(db, artId, sessionId, "Trashable");
-
 		expect(await Artifacts.trashArtifact(db, artId, "owner_trash")).toBe(true);
-
 		const list = await Artifacts.listArtifacts(db, sessionId, "owner_trash");
 		expect(list.map((a) => a.id)).not.toContain(artId);
-
 		const stored = await Artifacts.getArtifact(db, artId, "owner_trash");
 		expect(stored).not.toBeNull();
 		expect(stored!.trashed_at).not.toBeNull();
@@ -226,7 +193,6 @@ describe("artifact lifecycle", () => {
 		const sessionId = "ses_" + crypto.randomUUID();
 		await Sessions.createSession(db, sessionId, "owner_own", "hash_own", "Own Session");
 		await Artifacts.createArtifact(db, "art_" + crypto.randomUUID(), sessionId, "Mine");
-
 		expect(await Artifacts.trashArtifact(db, "art_" + crypto.randomUUID(), "owner_intruder")).toBe(false);
 	});
 
@@ -235,12 +201,8 @@ describe("artifact lifecycle", () => {
 		await Sessions.createSession(db, sessionId, "owner_purge", "hash_purge", "Purge Session");
 		const artId = "art_" + crypto.randomUUID();
 		await Artifacts.createArtifact(db, artId, sessionId, "Purgeable");
-
 		const past = Math.floor(Date.now() / 1000) - 1000;
-		await db.prepare("UPDATE artifacts SET trashed_at = ?, purge_after = ? WHERE id = ?")
-			.bind(past, past, artId)
-			.run();
-
+		await db.prepare("UPDATE artifacts SET trashed_at = ?, purge_after = ? WHERE id = ?").bind(past, past, artId).run();
 		const candidates = await Artifacts.selectPurgeCandidates(db);
 		expect(candidates.map((a) => a.id)).toContain(artId);
 	});

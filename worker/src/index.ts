@@ -2,7 +2,7 @@
  * Telegram Canvas Worker — Entrypoint
  *
  * Routes:
- *   /api/*          — authenticated viewer API
+ *   /api/*          — authenticated viewer API (Task 6)
  *   /internal/*     — publisher HMAC-gated API
  *   /scheduled/*    — cron triggers
  *   <other>         — static assets via Vite build
@@ -12,11 +12,13 @@
  */
 
 import type { D1Database, R2Bucket, DurableObjectNamespace } from "@cloudflare/workers-types";
+import { handlePublish } from "./routes/publish";
+import type { ArtifactRoom } from "./durable/artifact-room";
 
 export interface Env {
 	CANVAS_DB: D1Database;
 	CANVAS_ARTIFACTS: R2Bucket;
-	ARTIFACT_ROOM: DurableObjectNamespace;
+	ARTIFACT_ROOM: DurableObjectNamespace<ArtifactRoom>;
 	TELEGRAM_BOT_TOKEN: string;
 	PUBLISHER_SECRET: string;
 	IDENTITY_HMAC_KEY: string;
@@ -34,8 +36,8 @@ export default {
 			return handleApi(request, env, path);
 		}
 
-		if (path.startsWith("/internal/")) {
-			return handleInternal(request, env, path);
+		if (path.startsWith("/internal/publish")) {
+			return handlePublish(request, env);
 		}
 
 		return env.ASSETS.fetch(request);
@@ -52,21 +54,4 @@ async function handleApi(_request: Request, _env: Env, path: string): Promise<Re
 	});
 }
 
-async function handleInternal(_request: Request, _env: Env, path: string): Promise<Response> {
-	return new Response(JSON.stringify({ ok: true, path }), {
-		headers: { "content-type": "application/json" },
-	});
-}
-
-/**
- * Placeholder Durable Object class.
- * Full ArtifactRoom implementation with WebSocket hibernation added in Tasks 5/6.
- * Export is required by wrangler.jsonc binding validation.
- */
-export class ArtifactRoom {
-	constructor(_state: DurableObjectState, _env: Env) {}
-
-	async fetch(_request: Request): Promise<Response> {
-		return new Response(null, { status: 404 });
-	}
-}
+export { ArtifactRoom } from "./durable/artifact-room";

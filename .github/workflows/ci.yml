@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: worker
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "npm"
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Run tests
+        run: npm test
+
+      - name: Validate wrangler config
+        run: npx wrangler deploy --dry-run
+
+      - name: Secret scan
+        run: |
+          # Fail if any file looks like it contains real secrets
+          # (generated token patterns, private keys)
+          if grep -rE '(sk-[A-Za-z0-9]{20,}|-----BEGIN (RSA |EC )?PRIVATE KEY-----)' \
+            --include='*.{ts,js,json,py,yaml,yml,md,toml}' --exclude-dir=node_modules \
+            --exclude-dir=.git --exclude='*.example' .; then
+            echo "ERROR: Possible secret found in source files"
+            exit 1
+          fi
+          echo "Secret scan: OK"
+
+      - name: Verify .dev.vars is not tracked
+        run: |
+          if git ls-files --error-unmatch .dev.vars 2>/dev/null; then
+            echo "ERROR: .dev.vars is tracked by git!"
+            exit 1
+          fi
+          echo "Secret tracking check: OK"

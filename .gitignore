@@ -1,0 +1,43 @@
+# Secrets
+.dev.vars
+.wrangler/
+
+# Local SQLite state (miniflare / d1 migrations)
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.db-wal
+*.db-shm
+
+# Python
+hermes-plugin/__pycache__/
+hermes-plugin/**/__pycache__/
+hermes-plugin/.pytest_cache/
+hermes-plugin/*.egg-info/
+
+# Coverage
+coverage/
+worker/coverage/
+
+# Build output
+worker/dist/
+worker/.wrangler/
+
+# Node
+node_modules/
+worker/node_modules/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Logs
+*.log

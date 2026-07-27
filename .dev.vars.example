@@ -1,0 +1,20 @@
+# Cloudflare Worker runtime secrets (set via `wrangler secret put`)
+# Copy this to .dev.vars with real values for local development.
+# NEVER commit .dev.vars.
+
+# Telegram Bot API token — used server-side to verify WebApp init data.
+# Obtain from @BotFather on Telegram.
+TELEGRAM_BOT_TOKEN=
+
+# HMAC key shared between Hermes plugin and the Worker.
+# Used to sign /internal/publish requests.
+# Generate: openssl rand -hex 32
+PUBLISHER_SECRET=
+
+# HMAC key for deriving deterministic owner_hash and session_hash.
+# Generate: openssl rand -hex 32
+IDENTITY_HMAC_KEY=
+
+# HMAC key for minting short-lived artifact document tokens (v1 only; removed in corrected auth model).
+# Generate: openssl rand -hex 32
+DOCUMENT_TOKEN_KEY=

@@ -1,0 +1,47 @@
+{
+  "name": "telegram-canvas",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-09-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "dist",
+    "binding": "ASSETS",
+    "not_found_handling": "none"
+  },
+  "vars": {
+    "ENVIRONMENT": "development"
+  },
+  "routes": [
+    { "pattern": "canvas.advaitdeshpande.com", "custom_domain": true }
+  ],
+  "d1_databases": [
+    {
+      "binding": "CANVAS_DB",
+      "database_name": "telegram-canvas",
+      "database_id": "PLACEHOLDER"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "CANVAS_ARTIFACTS",
+      "bucket_name": "telegram-canvas-artifacts"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "ARTIFACT_ROOM",
+        "class_name": "ArtifactRoom",
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["ArtifactRoom"]
+    }
+  ],
+  "triggers": {
+    "crons": ["0 3 * * *"]
+  }
+}

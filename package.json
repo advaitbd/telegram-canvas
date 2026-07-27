@@ -1,0 +1,14 @@
+{
+  "name": "telegram-canvas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Telegram Canvas Mini App — browse, live-view, and manage HTML artifacts",
+  "workspaces": ["worker"],
+  "scripts": {
+    "test": "npm run test -w worker",
+    "typecheck": "npm run typecheck -w worker",
+    "lint": "npm run lint -w worker",
+    "build": "npm run build -w worker",
+    "dev": "npm run dev -w worker"
+  }
+}

@@ -25,8 +25,8 @@ declare module "cloudflare:test" {
 
 /** A valid shell session cookie value for a known owner. */
 function makeSessionCookie(ownerHash: string): string {
-	const sid = crypto.randomUUID();
-	return `__Host-canvas_session=${sid}.${ownerHash.slice(0, 16)}`;
+	const sid = "test-session-id";
+	return `__Host-canvas_session=${sid}.${ownerHash}`;
 }
 
 describe("Viewer authorization", () => {

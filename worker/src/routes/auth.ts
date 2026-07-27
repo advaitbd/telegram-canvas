@@ -45,7 +45,7 @@ export async function handleTelegramAuth(
 		// Issue session cookie
 		const sessionId = crypto.randomUUID();
 		const expiresAt = new Date(Date.now() + SESSION_COOKIE_TTL_SECONDS * 1000);
-		const cookieValue = `${sessionId}.${ownerHash.slice(0, 16)}`;
+		const cookieValue = `${sessionId}.${ownerHash}`;
 
 		return new Response(
 			JSON.stringify({ ok: true, user: { id: validated.user.id, first_name: validated.user.first_name } }),

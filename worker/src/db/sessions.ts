@@ -71,7 +71,7 @@ export async function listSessionsByOwner(
 			`SELECT id, owner_hash, session_hash, title, last_active_at, expires_at, created_at, updated_at
        FROM session_records
        WHERE owner_hash = ? AND expires_at > ?
-       ORDER BY last_active_at DESC`,
+       ORDER BY last_active_at DESC, id DESC`,
 		)
 		.bind(owner_hash, now)
 		.all<SessionRecord>();

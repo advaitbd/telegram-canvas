@@ -81,7 +81,7 @@ export async function handleListRevisions(
 	const artifact = await Artifacts.getArtifact(db, artifactId, ownerHash);
 	if (!artifact) return jsonError(404, "Not found");
 
-	const revisions = await Artifacts.listRevisions(db, artifactId);
+	const revisions = (await Artifacts.listRevisions(db, artifactId)).filter((revision) => revision.status === "ready");
 	return jsonOk({ revisions });
 }
 
@@ -107,7 +107,7 @@ export async function handleGetDocument(
 
 	// Get the revision to find the R2 key
 	const revisions = await Artifacts.listRevisions(env.CANVAS_DB, artifactId);
-	const revision = revisions.find((r) => r.id === revisionId);
+	const revision = revisions.find((r) => r.id === revisionId && r.status === "ready");
 	if (!revision) return jsonError(404, "Not found");
 
 	// Check trash status

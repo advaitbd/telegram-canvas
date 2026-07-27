@@ -83,7 +83,8 @@ export async function getArtifact(
 	return row ?? null;
 }
 
-/** List non-trashed artifacts in a session, constrained by owner_hash. */
+/** List viewable, non-trashed artifacts in a session, constrained by owner_hash.
+ * An artifact is viewable only when its current revision is ready. */
 export async function listArtifacts(
 	db: D1Database,
 	session_id: string,
@@ -93,9 +94,12 @@ export async function listArtifacts(
 		.prepare(
 			`SELECT a.id, a.session_id, a.title, a.current_revision_id,
 				a.trashed_at, a.purge_after, a.created_at, a.updated_at
-			FROM artifacts a JOIN session_records s ON s.id = a.session_id
+			FROM artifacts a
+			JOIN session_records s ON s.id = a.session_id
+			JOIN artifact_revisions current_revision ON current_revision.id = a.current_revision_id
 			WHERE a.session_id = ? AND s.owner_hash = ? AND a.trashed_at IS NULL
-			ORDER BY a.created_at DESC`,
+				AND current_revision.status = 'ready'
+			ORDER BY a.created_at DESC, a.id DESC`,
 		)
 		.bind(session_id, owner_hash)
 		.all<ArtifactRecord>();

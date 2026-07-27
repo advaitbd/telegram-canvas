@@ -138,8 +138,16 @@ describe("artifact lifecycle", () => {
 	it("lists non-trashed artifacts in a session", async () => {
 		const sessionId = "ses_" + crypto.randomUUID();
 		await Sessions.createSession(db, sessionId, "owner_list_art", "hash_list_art", "List Session");
-		await Artifacts.createArtifact(db, "art_list1_" + crypto.randomUUID(), sessionId, "Visible");
-		await Artifacts.createArtifact(db, "art_list2_" + crypto.randomUUID(), sessionId, "Also Visible");
+			const firstId = "art_list1_" + crypto.randomUUID();
+		const secondId = "art_list2_" + crypto.randomUUID();
+		await Artifacts.createArtifact(db, firstId, sessionId, "Visible");
+		await Artifacts.createArtifact(db, secondId, sessionId, "Also Visible");
+		await Artifacts.createRevision(db, "rev_" + crypto.randomUUID(), firstId, 1, "r2://visible", 1, "ready");
+		await Artifacts.createRevision(db, "rev_" + crypto.randomUUID(), secondId, 1, "r2://also-visible", 1, "ready");
+		const revisions = await Artifacts.listRevisions(db, firstId);
+		const otherRevisions = await Artifacts.listRevisions(db, secondId);
+		await Artifacts.setCurrentRevision(db, firstId, revisions[0].id);
+		await Artifacts.setCurrentRevision(db, secondId, otherRevisions[0].id);
 		expect(await Artifacts.listArtifacts(db, sessionId, "owner_list_art")).toHaveLength(2);
 	});
 

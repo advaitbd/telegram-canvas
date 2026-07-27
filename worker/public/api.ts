@@ -2,7 +2,7 @@
 
 const API_BASE = "";
 
-interface SessionItem {
+export interface SessionItem {
 	id: string;
 	title: string;
 	artifact_count: number;
@@ -10,7 +10,7 @@ interface SessionItem {
 	expires_at: number;
 }
 
-interface ArtifactItem {
+export interface ArtifactItem {
 	id: string;
 	session_id: string;
 	title: string;
@@ -19,7 +19,7 @@ interface ArtifactItem {
 	created_at: number;
 }
 
-interface RevisionItem {
+export interface RevisionItem {
 	id: string;
 	ordinal: number;
 	r2_key: string;

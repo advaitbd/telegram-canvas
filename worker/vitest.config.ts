@@ -12,5 +12,6 @@ export default defineWorkersConfig({
       },
     },
     include: ["test/**/*.test.ts"],
+    exclude: ["test/**/*.dom.test.ts"],
   },
 });

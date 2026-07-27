@@ -8,13 +8,15 @@
     "build": "vite build && wrangler deploy --dry-run",
     "typecheck": "tsc --noEmit",
     "lint": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && vitest run --config vitest.dom.config.ts",
+    "test:ui": "vitest run --config vitest.dom.config.ts",
     "test:watch": "vitest",
     "cf-typegen": "wrangler types"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.8.16",
     "@cloudflare/workers-types": "^5.20260727.1",
+    "jsdom": "^26.1.0",
     "typescript": "^5.8.3",
     "vite": "^6.3.2",
     "vitest": "^3.1.1",

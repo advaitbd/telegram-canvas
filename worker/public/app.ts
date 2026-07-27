@@ -1,179 +1,115 @@
-/**
- * Canvas Mini App — main shell.
- *
- * Lifecycle:
- *   1. On load, exchange Telegram WebApp init data for session cookie
- *   2. Show session picker (only sessions with artifacts)
- *   3. On session select → show artifact gallery
- *   4. On artifact select → show viewer with revision selector
- *   5. Live update via WebSocket stream
- */
+import { api, type ArtifactItem, type RevisionItem, type SessionItem } from "./api";
+import { CanvasNavigator, type CanvasRenderer, type NavigationView, type TelegramBackButton } from "./navigation";
 
-import { api } from "./api";
-import { state, type ArtifactView } from "./state";
+const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
+const webapp = (window as { Telegram?: { WebApp?: { initData?: string; ready(): void; expand(): void; BackButton?: TelegramBackButton } } }).Telegram?.WebApp;
+let renderGeneration = 0;
 
-const $ = <T extends HTMLElement>(id: string): T =>
-	document.getElementById(id) as T;
+const renderer: CanvasRenderer = {
+  render(view) {
+    renderGeneration += 1;
+    clearTransientContent();
+    if (view.kind === "picker") renderPicker(view.sessions);
+    if (view.kind === "gallery") renderGallery(view.session, view.artifacts);
+    if (view.kind === "viewer") void renderViewer(view.session, view.artifact, renderGeneration);
+  },
+  showError(message) {
+    renderGeneration += 1;
+    clearTransientContent();
+    $("error-message").textContent = message;
+    showScreen("error-screen");
+  },
+};
 
-const webapp = (window as any).Telegram?.WebApp;
+const navigator = new CanvasNavigator(api, renderer, webapp?.BackButton);
 
 async function init(): Promise<void> {
-	if (webapp) {
-		webapp.ready();
-		webapp.expand();
-	}
-
-	// Exchange init data
-	const initData = webapp?.initData || "";
-	if (!initData) {
-		showError("Not running in Telegram WebView");
-		return;
-	}
-
-	try {
-		await api.login(initData);
-	} catch {
-		showError("Authentication failed");
-		return;
-	}
-
-	await loadSessions();
+  if (webapp) { webapp.ready(); webapp.expand(); }
+  const initData = webapp?.initData || "";
+  if (!initData) { renderer.showError("Open Canvas from Telegram to view your private artifacts."); return; }
+  showScreen("loading-screen");
+  try {
+    await api.login(initData);
+    await navigator.openDefault();
+  } catch {
+    renderer.showError("Authentication failed. Please reopen Canvas from Telegram.");
+  }
 }
 
-// ── Session picker ───────────────────────────────────────────────────
-
-async function loadSessions(): Promise<void> {
-	showScreen("session-picker");
-	const list = $<HTMLDivElement>("session-list");
-	list.innerHTML = "";
-
-	try {
-		const sessions = await api.listSessions();
-		if (sessions.length === 0) {
-			list.innerHTML = '<p class="empty-state">No sessions yet — ask the agent to publish a canvas.</p>';
-			return;
-		}
-		for (const s of sessions) {
-			const el = document.createElement("div");
-			el.className = "list-item";
-			el.textContent = s.title || `Session ${s.id.slice(0, 8)}`;
-			el.dataset.sessionId = s.id;
-			el.addEventListener("click", () => loadArtifacts(s.id, s.title));
-			list.appendChild(el);
-		}
-	} catch {
-		showError("Failed to load sessions");
-	}
+function renderPicker(sessions: SessionItem[]): void {
+  showScreen("session-picker");
+  const list = $<HTMLUListElement>("session-list");
+  if (!sessions.length) { appendEmpty(list, "No canvases yet — ask the agent to publish one."); return; }
+  for (const session of sessions) {
+    list.appendChild(listButton(session.title || `Session ${session.id.slice(0, 8)}`, `${session.artifact_count} artifact${session.artifact_count === 1 ? "" : "s"}`, () => void navigator.openGallery(session)));
+  }
 }
 
-// ── Artifact gallery ─────────────────────────────────────────────────
-
-async function loadArtifacts(sessionId: string, title: string): Promise<void> {
-	state.currentSessionId = sessionId;
-	$("gallery-title").textContent = title;
-	showScreen("artifact-gallery");
-	const list = $<HTMLDivElement>("artifact-list");
-	list.innerHTML = "";
-
-	try {
-		const artifacts = await api.listArtifacts(sessionId);
-		if (artifacts.length === 0) {
-			list.innerHTML = '<p class="empty-state">No artifacts in this session.</p>';
-			return;
-		}
-		state.artifacts = artifacts;
-		for (const a of artifacts) {
-			const el = document.createElement("div");
-			el.className = "list-item";
-			el.textContent = a.title || `Artifact ${a.id.slice(0, 8)}`;
-			el.dataset.artifactId = a.id;
-			el.addEventListener("click", () => openViewer(a));
-			list.appendChild(el);
-		}
-	} catch {
-		showError("Failed to load artifacts");
-	}
+function renderGallery(session: SessionItem, artifacts: ArtifactItem[]): void {
+  $("gallery-title").textContent = session.title || `Session ${session.id.slice(0, 8)}`;
+  showScreen("artifact-gallery");
+  const list = $<HTMLUListElement>("artifact-list");
+  if (!artifacts.length) { appendEmpty(list, "No viewable artifacts remain in this session."); return; }
+  for (const artifact of artifacts) {
+    list.appendChild(listButton(artifact.title || `Artifact ${artifact.id.slice(0, 8)}`, `Created ${formatDate(artifact.created_at)}`, () => navigator.openViewer(session, artifact)));
+  }
 }
 
-// ── Artifact viewer ──────────────────────────────────────────────────
-
-async function openViewer(artifact: ArtifactView): Promise<void> {
-	state.currentArtifactId = artifact.id;
-	$("viewer-title").textContent = artifact.title || "Untitled";
-	showScreen("artifact-viewer");
-
-	// Load revisions
-	try {
-		const revisions = await api.listRevisions(artifact.id);
-		const sel = $<HTMLSelectElement>("revision-selector");
-		sel.innerHTML = "";
-		for (const r of revisions) {
-			const opt = document.createElement("option");
-			opt.value = r.id;
-			opt.textContent = `#${r.ordinal} — ${formatDate(r.created_at)}`;
-			sel.appendChild(opt);
-		}
-		if (revisions.length > 0) {
-			sel.value = revisions[0].id;
-			loadDocument(artifact.id, revisions[0].id);
-		}
-		sel.addEventListener("change", () => {
-			loadDocument(artifact.id, sel.value);
-		});
-	} catch {
-		showError("Failed to load revisions");
-	}
-
-	// Wire controls
-	$("btn-download").onclick = () => {
-		window.open(api.getDownloadUrl(artifact.id), "_blank");
-	};
-	$("btn-extend").onclick = async () => {
-		if (await api.extendExpiry(artifact.id)) {
-			$("btn-extend").textContent = "Extended ✓";
-		}
-	};
-	$("btn-delete").onclick = async () => {
-		if (confirm("Delete this artifact?")) {
-			if (await api.trashArtifact(artifact.id)) {
-				const sid = state.currentSessionId;
-				const title = $("gallery-title").textContent;
-				if (sid) loadArtifacts(sid, title);
-			}
-		}
-	};
+async function renderViewer(session: SessionItem, artifact: ArtifactItem, generation: number): Promise<void> {
+  $("viewer-title").textContent = artifact.title || "Untitled canvas";
+  $("viewer-session").textContent = session.title || "CANVAS";
+  showScreen("artifact-viewer");
+  const selector = $<HTMLSelectElement>("revision-selector");
+  selector.replaceChildren();
+  try {
+    const revisions = await api.listRevisions(artifact.id);
+    if (generation !== renderGeneration) return;
+    for (const revision of revisions) selector.appendChild(revisionOption(revision));
+    if (revisions[0]) loadDocument(artifact.id, revisions[0].id);
+    else renderer.showError("This canvas no longer has a ready revision.");
+    selector.onchange = () => loadDocument(artifact.id, selector.value);
+  } catch {
+    if (generation === renderGeneration) renderer.showError("Could not load canvas revisions. Please retry.");
+  }
+  $("btn-download").onclick = () => window.open(api.getDownloadUrl(artifact.id), "_blank", "noopener");
+  $("btn-extend").onclick = async () => {
+    if (await api.extendExpiry(artifact.id) && generation === renderGeneration) $("btn-extend").textContent = "Extended ✓";
+  };
+  $("btn-delete").onclick = async () => {
+    if (confirm("Delete this artifact?") && await api.trashArtifact(artifact.id) && generation === renderGeneration) navigator.openGallery(session);
+  };
 }
 
-function loadDocument(artifactId: string, revisionId: string): void {
-	const iframe = $<HTMLIFrameElement>("artifact-iframe");
-	iframe.src = api.getDocumentUrl(artifactId, revisionId);
+function clearTransientContent(): void {
+  $<HTMLIFrameElement>("artifact-iframe").src = "about:blank";
+  $<HTMLUListElement>("session-list").replaceChildren();
+  $<HTMLUListElement>("artifact-list").replaceChildren();
+  $<HTMLSelectElement>("revision-selector").replaceChildren();
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────
-
-function showScreen(id: string): void {
-	for (const s of ["session-picker", "artifact-gallery", "artifact-viewer", "error-screen", "loading-screen"]) {
-		$<HTMLDivElement>(s).classList.toggle("hidden", s !== id);
-	}
+function listButton(title: string, meta: string, onClick: () => void): HTMLLIElement {
+  const item = document.createElement("li");
+  const button = document.createElement("button");
+  button.type = "button"; button.className = "list-item"; button.onclick = onClick;
+  const label = document.createElement("span"); label.className = "item-title"; label.textContent = title;
+  const detail = document.createElement("span"); detail.className = "item-meta"; detail.textContent = meta;
+  button.append(label, detail); item.appendChild(button); return item;
 }
 
-function showError(msg: string): void {
-	$("error-message").textContent = msg;
-	showScreen("error-screen");
+function appendEmpty(list: HTMLUListElement, message: string): void {
+  const item = document.createElement("li"); item.className = "empty-state"; item.textContent = message; list.appendChild(item);
 }
 
-function formatDate(ts: number): string {
-	return new Date(ts * 1000).toLocaleDateString();
+function revisionOption(revision: RevisionItem): HTMLOptionElement {
+  const option = document.createElement("option"); option.value = revision.id; option.textContent = `#${revision.ordinal} — ${formatDate(revision.created_at)}`; return option;
 }
 
-// Navigation
-$("back-to-sessions").onclick = () => loadSessions();
-$("back-to-gallery").onclick = () => {
-	if (state.currentSessionId) {
-		loadArtifacts(state.currentSessionId, $("gallery-title").textContent);
-	}
-};
-$("btn-retry").onclick = () => init();
+function loadDocument(artifactId: string, revisionId: string): void { $<HTMLIFrameElement>("artifact-iframe").src = api.getDocumentUrl(artifactId, revisionId); }
+function showScreen(id: string): void { for (const screen of ["session-picker", "artifact-gallery", "artifact-viewer", "error-screen", "loading-screen"]) $(screen).classList.toggle("hidden", screen !== id); }
+function formatDate(timestamp: number): string { return new Date(timestamp * 1000).toLocaleDateString(); }
 
-// Boot
-document.addEventListener("DOMContentLoaded", init);
+$("back-to-sessions").onclick = () => void navigator.openPicker();
+$("back-to-gallery").onclick = () => navigator.back();
+$("browse-all").onclick = () => void navigator.openPicker();
+$("btn-retry").onclick = () => void init();
+document.addEventListener("DOMContentLoaded", () => void init());

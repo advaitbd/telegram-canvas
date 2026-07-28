@@ -57,6 +57,8 @@ flowchart LR
    and loads the current revision. The result is a live canvas scoped to the
    Telegram user and the Hermes conversation that produced it.
 
+→ [Full sequence diagrams](docs/sequence-diagram.md) covering auth, publish, live viewing, expiry, and cron maintenance.
+
 - **Worker**: Cloudflare Workers with D1 metadata, R2 revision blobs, and Durable
   Object WebSocket rooms.
 - **Mini App**: Vanilla TypeScript frontend, built by Vite, served as Workers

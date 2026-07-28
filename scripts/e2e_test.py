@@ -4,35 +4,20 @@ import hashlib
 import hmac
 import json
 import os
-import subprocess
 import sys
 import time
 import uuid
 
-WORKER_URL = "https://canvas.advaitdeshpande.com"
-ACC_ID = "363f0fc4a655e1573c63f0b18d6e5e0e"
-
-# Read secrets from environment (sourced from Hermes .env)
-env = {}
-with open("/home/hermes/.hermes/.env") as f:
-    for line in f:
-        line = line.strip()
-        if "=" in line and not line.startswith("#"):
-            k, v = line.split("=", 1)
-            env[k] = v
-
-PUBLISHER_SECRET = env.get("CANVAS_PUBLISHER_SECRET", "")
-CF_TOKEN = subprocess.run(
-    ["bash", "-ic", 'echo "$CLOUDFLARE_CANVAS_DEPLOY_TOKEN"'],
-    capture_output=True, text=True, env={}
-).stdout.strip()
-
-# Get bot token
-TOKEN = env.get("TELEGRAM_BOT_TOKEN", "")
+WORKER_URL = os.environ.get("CANVAS_WORKER_URL", "https://canvas.advaitdeshpande.com")
+ACC_ID = os.environ.get("CF_ACCOUNT_ID", "")
+PUBLISHER_SECRET = os.environ.get("CANVAS_PUBLISHER_SECRET", "")
+CF_TOKEN = os.environ.get("CLOUDFLARE_API_TOKEN", "")
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+CHAT_ID = os.environ.get("CANVAS_E2E_CHAT_ID", "")
 
 print("=== 1. PUBLISH HTML ARTIFACT ===")
 body = json.dumps({
-    "telegram_creator_id": "52460092",
+    "telegram_creator_id": CHAT_ID,
     "hermes_session_id": "e2e_test_session",
     "session_title": "Canvas E2E Test",
     "title": "E2E Test Artifact",
@@ -108,7 +93,7 @@ assert resp3.status == 200
 print()
 print("=== 4. TELEGRAM MENU STATUS ===")
 req4 = urllib.request.Request(
-    f"https://api.telegram.org/bot{TOKEN}/getChatMenuButton?chat_id=52460092",
+    f"https://api.telegram.org/bot{TOKEN}/getChatMenuButton?chat_id={CHAT_ID}",
 )
 resp4 = urllib.request.urlopen(req4, timeout=10)
 menu = json.loads(resp4.read())

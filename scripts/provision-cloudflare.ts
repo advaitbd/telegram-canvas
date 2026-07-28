@@ -68,7 +68,11 @@ async function main() {
 
 	// 3. Add DNS record for preview
 	try {
-		const zoneId = "40d87aeb520df62aeb11de96cbcf44eb";
+		const zoneId = process.env.CF_ZONE_ID;
+		if (!zoneId) {
+			console.error("❌ DNS creation skipped: CF_ZONE_ID not set");
+			return;
+		}
 		const token = process.env.CLOUDFLARE_API_TOKEN;
 		const dnsName = `${PREVIEW_NAME}.canvas`;
 		const resp = await fetch(

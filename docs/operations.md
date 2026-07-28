@@ -4,8 +4,8 @@
 
 | Resource | Name | ID / Details |
 |---|---|---|
-| Worker | `telegram-canvas` | Version `4fabe143-9d8a-43cf-806d-884b2b1ded59` |
-| D1 Database | `telegram-canvas` | `fa7685ec-cea5-49fb-ae03-a6f932a78234` |
+| Worker | `telegram-canvas` | See `wrangler.jsonc` |
+| D1 Database | `telegram-canvas` | `wrangler d1 list` |
 | R2 Bucket | `telegram-canvas-artifacts` | Standard storage class |
 | Durable Object | `ArtifactRoom` | SQLite-backed, v1 migration |
 | Worker Route | `canvas.advaitdeshpande.com/*` | Zone: advaitdeshpande.com |
@@ -14,15 +14,11 @@
 
 ### Deployment Token
 
-The deploy token is stored as `CLOUDFLARE_CANVAS_DEPLOY_TOKEN` in `.bashrc`.
-It is **not** available in non-interactive shells. Use the following pattern
-for all wrangler/cloudflare commands:
+The Cloudflare API token with deploy permissions should be set as `CLOUDFLARE_API_TOKEN` in your shell environment or CI secrets.
 
 ```bash
-bash -ic 'export CLOUDFLARE_API_TOKEN="$CLOUDFLARE_CANVAS_DEPLOY_TOKEN"; wrangler <command>' 2>/dev/null
+export CLOUDFLARE_API_TOKEN="<your-token>"
 ```
-
-The token is scoped to the subprocess and never printed.
 
 ## Secret Locations
 
@@ -103,11 +99,8 @@ Preview: push to PR → deploy to preview worker (requires preview D1/R2 resourc
 
 Manual deploy:
 ```bash
-bash -ic '
-export CLOUDFLARE_API_TOKEN="$CLOUDFLARE_CANVAS_DEPLOY_TOKEN"
 cd worker
 npx wrangler deploy
-' 2>/dev/null
 ```
 
 ## Rollback
@@ -124,20 +117,20 @@ npx wrangler rollback
 
 ```bash
 # 1. Delete the DNS record for canvas.advaitdeshpande.com
-# Record ID: 4500490415cbccfb6099f21f64e50d55
+#    Find the record ID first: wrangler dns list
 
 # 2. Delete the worker (this also removes routes and cron triggers)
-bash -ic 'export CLOUDFLARE_API_TOKEN="$CLOUDFLARE_CANVAS_DEPLOY_TOKEN"; wrangler delete telegram-canvas' 2>/dev/null
+wrangler delete telegram-canvas
 
 # 3. Delete D1 database (do this AFTER confirming no worker references it)
-bash -ic 'export CLOUDFLARE_API_TOKEN="$CLOUDFLARE_CANVAS_DEPLOY_TOKEN"; wrangler d1 delete telegram-canvas' 2>/dev/null
+wrangler d1 delete telegram-canvas
 
 # 4. Delete R2 bucket (must be empty first — manually delete all objects or
 #    use the R2 dashboard to empty it)
-bash -ic 'export CLOUDFLARE_API_TOKEN="$CLOUDFLARE_CANVAS_DEPLOY_TOKEN"; wrangler r2 bucket delete telegram-canvas-artifacts' 2>/dev/null
+wrangler r2 bucket delete telegram-canvas-artifacts
 
 # 5. Optionally delete the GitHub repository
-#    gh repo delete advaitbd/telegram-canvas
+#    gh repo delete <owner>/telegram-canvas
 ```
 
 ## Key Rotation

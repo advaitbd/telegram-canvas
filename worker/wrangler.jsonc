@@ -18,8 +18,7 @@
   "d1_databases": [
     {
       "binding": "CANVAS_DB",
-      "database_name": "telegram-canvas",
-      "database_id": "fa7685ec-cea5-49fb-ae03-a6f932a78234"
+      "database_name": "telegram-canvas"
     }
   ],
   "r2_buckets": [

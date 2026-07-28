@@ -26,7 +26,7 @@ sequenceDiagram
 
     Worker->>Mini: Set-Cookie: __Host-canvas_session=<uuid>.<owner_hash>
     Worker-->>Mini: 200 {ok, user: {id, first_name}}
-    Note over Mini: cookie stored; now authenticated for viewer API
+    Note over Mini: cookie stored, viewer API authenticated
 ```
 
 ## Publish: Hermes Agent Pushes an Artifact
@@ -106,13 +106,14 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     autonumber
+    actor User
     participant Mini as Mini App
     participant Worker as Canvas Worker
     participant D1 as D1 (metadata)
     participant R2 as R2 (blobs)
     participant DO as ArtifactRoom
 
-    Note over Mini: already authenticated (__Host-canvas_session cookie set)
+    Note over Mini: authenticated with the canvas session cookie
 
     Mini->>Worker: GET /api/sessions (Cookie: __Host-canvas_session=<val>)
     Worker->>Worker: parse owner_hash from cookie
@@ -120,7 +121,7 @@ sequenceDiagram
     D1-->>Worker: [session records]
     Worker-->>Mini: 200 [{id, title, last_active_at, expires_at}]
 
-    User selects session
+    Note over User,Mini: User selects a session
     Mini->>Worker: GET /api/sessions/:id/artifacts
     Worker->>D1: SELECT artifacts WHERE session_id = ? (owner-verified)
     D1-->>Worker: [artifacts with current_revision_id]
@@ -134,7 +135,7 @@ sequenceDiagram
     DO->>Mini: 101 WebSocket upgrade
     DO-->>Mini: {type: "connected", session_id}
 
-    User selects artifact to view
+    Note over User,Mini: User selects an artifact to view
     Mini->>Worker: GET /api/artifacts/:id/revisions
     Worker->>Worker: verify owner via cookie
     Worker->>D1: SELECT revisions WHERE artifact_id = ?
@@ -155,26 +156,27 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     autonumber
+    actor User
     participant Mini as Mini App
     participant Worker as Canvas Worker
     participant D1 as D1 (metadata)
     participant R2 as R2 (blobs)
     participant Cron as Cloudflare Cron (3 AM daily)
 
-    User extends session via Mini App
+    Note over User,Mini: User extends a session
     Mini->>Worker: POST /api/artifacts/:id/extend<br/>X-CSRF-Token + Same-Origin
     Worker->>Worker: CSRF check (Origin + Sec-Fetch-Site + token)
     Worker->>D1: UPDATE session expires_at = now + 30d
     D1-->>Worker: ok
     Worker-->>Mini: 200 {ok, extended: true}
 
-    User trashes artifact via Mini App
+    Note over User,Mini: User trashes an artifact
     Mini->>Worker: DELETE /api/artifacts/:id<br/>X-CSRF-Token + Same-Origin
     Worker->>Worker: CSRF check
     Worker->>D1: UPDATE artifact trashed_at = now, purge_after = now + 7d
     D1-->>Worker: ok
     Worker-->>Mini: 200 {ok, trashed: true}
-    Note over Mini: artifact hidden from lists; recoverable for 7 days
+    Note over Mini: artifact hidden from lists, recoverable for 7 days
 
     Cron->>Worker: scheduled() trigger
     Worker->>D1: DELETE expired session_records (+ cascade artifacts/revisions)
@@ -182,5 +184,5 @@ sequenceDiagram
     Worker->>R2: delete orphaned revision blobs (best-effort)
     Worker->>D1: DELETE stale nonces WHERE expires_at ≤ now
     Worker->>D1: DELETE rate limit rows older than 24h
-    Note over Worker: maintenance complete; session & artifact lifecycle enforced
+    Note over Worker: maintenance complete, session and artifact lifecycle enforced
 ```

@@ -3,6 +3,8 @@
 A Telegram Mini App that lets you browse, live-view, revise, and manage HTML
 artifacts scoped to your own Hermes sessions.
 
+https://github.com/user-attachments/assets/5106033c-6e25-43f3-88a2-31f3c8e852a6
+
 ## Architecture
 
 ```mermaid

@@ -68,6 +68,19 @@ async function renderViewer(session: SessionItem, artifact: ArtifactItem, genera
     $("btn-extend").onclick = async () => {
       if (await api.extendExpiry(artifact.id) && generation === renderGeneration) $("btn-extend").textContent = "Extended ✓";
     };
+    $("btn-share").onclick = async () => {
+      try {
+        const duration = Number($<HTMLSelectElement>("share-duration").value);
+        const share = await api.createPublicShare(artifact.id, duration);
+        if (window.navigator.clipboard?.writeText) {
+          await window.navigator.clipboard.writeText(share.url);
+          $("btn-share").textContent = "Public link copied ✓";
+        } else {
+          window.prompt("Copy your public link", share.url);
+          $("btn-share").textContent = "Public link ready";
+        }
+      } catch { $("btn-share").textContent = "Could not create link"; }
+    };
     $("btn-delete").onclick = async () => {
       closeViewerMenu(false);
       if (confirm("Delete this artifact?") && await api.trashArtifact(artifact.id) && generation === renderGeneration) navigator.openGallery(session);
@@ -85,8 +98,9 @@ function clearTransientContent(): void {
   const selector = $<HTMLSelectElement>("revision-selector");
   selector.replaceChildren();
   selector.onchange = null;
-  for (const id of ["btn-download", "btn-extend", "btn-delete"]) $(id).onclick = null;
+  for (const id of ["btn-download", "btn-extend", "btn-share", "btn-delete"]) $(id).onclick = null;
   $("btn-extend").textContent = "Extend 30d";
+  $("btn-share").textContent = "Create public link";
 }
 
 function openViewerMenu(): void {

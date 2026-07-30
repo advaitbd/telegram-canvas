@@ -4,8 +4,8 @@ export default defineWorkersConfig({
   test: {
     poolOptions: {
       workers: {
-        wrangler: { configPath: "./wrangler.jsonc" },
         miniflare: {
+          compatibilityDate: "2025-09-06",
           d1Databases: ["CANVAS_DB"],
           r2Buckets: ["CANVAS_ARTIFACTS"],
         },

@@ -40,6 +40,9 @@ jobs:
       - name: Run tests
         run: npm test
 
+      - name: Build frontend assets
+        run: npx vite build
+
       - name: Validate wrangler config
         run: npx wrangler deploy --dry-run
 

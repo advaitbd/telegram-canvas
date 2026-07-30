@@ -95,10 +95,3 @@ jobs:
             exit 1
           fi
           echo "Health: $STATUS OK"
-
-          SECURITY=$(curl -sI https://canvas.advaitdeshpande.com/ | grep -i "x-content-type-options" || true)
-          if [ -z "$SECURITY" ]; then
-            echo "WARNING: Missing X-Content-Type-Options header"
-          else
-            echo "Security headers: present"
-          fi

@@ -32,6 +32,15 @@ export interface RevisionRecord {
 	created_at: number;
 }
 
+/** Compact owner-scoped metadata used by the all-canvases archive. */
+export interface CanvasArchiveRecord extends ArtifactRecord {
+	session_title: string;
+	session_last_active_at: number;
+	session_expires_at: number;
+	revision_count: number;
+	current_revision_bytes: number;
+}
+
 // ---------------------------------------------------------------------------
 // Artifact CRUD
 // ---------------------------------------------------------------------------
@@ -103,6 +112,28 @@ export async function listArtifacts(
 		)
 		.bind(session_id, owner_hash)
 		.all<ArtifactRecord>();
+	return rows.results ?? [];
+}
+
+/** List every viewable artifact for an owner, newest activity first. */
+export async function listCanvasesByOwner(
+	db: D1Database,
+	owner_hash: string,
+): Promise<CanvasArchiveRecord[]> {
+	const rows = await db.prepare(
+		`SELECT a.id, a.session_id, a.title, a.current_revision_id, a.trashed_at,
+			a.purge_after, a.created_at, a.updated_at, s.title AS session_title,
+			s.last_active_at AS session_last_active_at, s.expires_at AS session_expires_at,
+			COUNT(r.id) AS revision_count, current_revision.content_bytes AS current_revision_bytes
+		FROM artifacts a
+		JOIN session_records s ON s.id = a.session_id
+		JOIN artifact_revisions current_revision ON current_revision.id = a.current_revision_id
+		LEFT JOIN artifact_revisions r ON r.artifact_id = a.id
+		WHERE s.owner_hash = ? AND s.expires_at > unixepoch() AND a.trashed_at IS NULL
+			AND current_revision.status = 'ready'
+		GROUP BY a.id
+		ORDER BY a.updated_at DESC, a.id DESC`,
+	).bind(owner_hash).all<CanvasArchiveRecord>();
 	return rows.results ?? [];
 }
 

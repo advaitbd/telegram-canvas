@@ -17,6 +17,15 @@ export interface ArtifactItem {
 	current_revision_id: string | null;
 	trashed_at: number | null;
 	created_at: number;
+	updated_at?: number;
+}
+
+export interface CanvasItem extends ArtifactItem {
+	session_title: string;
+	session_last_active_at: number;
+	session_expires_at: number;
+	revision_count: number;
+	current_revision_bytes: number;
 }
 
 export interface RevisionItem {
@@ -101,6 +110,14 @@ export class CanvasApi {
 		if (!res.ok) throw new Error("Failed to list sessions");
 		const body = await res.json();
 		return body.sessions ?? [];
+	}
+
+	/** List all viewable canvases with enough metadata for archive management. */
+	async listCanvases(): Promise<CanvasItem[]> {
+		const res = await fetch(`${API_BASE}/api/canvases`, { credentials: "include" });
+		if (!res.ok) throw new Error("Failed to list canvases");
+		const body = await res.json();
+		return body.canvases ?? [];
 	}
 
 	/** List artifacts in a session. */

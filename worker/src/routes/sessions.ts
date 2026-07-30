@@ -69,6 +69,16 @@ export async function handleListSessions(
 	return jsonOk({ sessions: eligible.filter(Boolean) });
 }
 
+/** GET /api/canvases — an owner-scoped, management-first canvas archive. */
+export async function handleListCanvases(
+	request: Request,
+	db: D1Database,
+): Promise<Response> {
+	const ownerHash = getOwnerFromCookie(request);
+	if (!ownerHash) return jsonError(401, "Unauthorized");
+	return jsonOk({ canvases: await Artifacts.listCanvasesByOwner(db, ownerHash) });
+}
+
 /**
  * GET /api/sessions/:id/artifacts — list non-trashed artifacts for a session.
  */

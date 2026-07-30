@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   CanvasNavigator,
   type Artifact,
+  type Canvas,
   type CanvasApiLike,
   type CanvasRenderer,
   type Session,
@@ -13,11 +14,16 @@ const artifact = (id: string, session_id: string, created_at = 1): Artifact => (
   id, session_id, title: id, current_revision_id: `revision-${id}`, created_at,
 });
 
+const canvas = (id: string, session_id: string, updated_at = 1): Canvas => ({
+  ...artifact(id, session_id, updated_at), session_title: session_id, session_last_active_at: updated_at,
+  session_expires_at: 999, revision_count: 1, current_revision_bytes: 512, updated_at,
+});
+
 function fixture(overrides: Partial<CanvasApiLike> = {}) {
   const api: CanvasApiLike = {
     bootstrap: vi.fn().mockResolvedValue({ session: session("newer", 2), artifact: artifact("artifact-newer", "newer") }),
     getCachedBootstrap: vi.fn().mockReturnValue(null),
-    listSessions: vi.fn().mockResolvedValue([session("older", 1), session("newer", 2)]),
+    listCanvases: vi.fn().mockResolvedValue([canvas("artifact-older", "older", 1), canvas("artifact-newer", "newer", 2)]),
     listArtifacts: vi.fn().mockImplementation(async (sessionId: string) => [artifact(`artifact-${sessionId}`, sessionId)]),
     listRevisions: vi.fn().mockResolvedValue([{ id: "revision", ordinal: 1, created_at: 1, status: "ready" }]),
     ...overrides,
@@ -38,9 +44,9 @@ describe("CanvasNavigator", () => {
   });
 
   it("shows the picker when the owner has no viewable artifacts", async () => {
-    const { navigator, renderer } = fixture({ bootstrap: vi.fn().mockResolvedValue(null), listSessions: vi.fn().mockResolvedValue([]) });
+    const { navigator, renderer } = fixture({ bootstrap: vi.fn().mockResolvedValue(null), listCanvases: vi.fn().mockResolvedValue([]) });
     await navigator.openDefault();
-    expect(renderer.render).toHaveBeenLastCalledWith({ kind: "picker", sessions: [] });
+    expect(renderer.render).toHaveBeenLastCalledWith({ kind: "picker", canvases: [] });
   });
 
   it("backs from viewer to gallery then picker and replaces Telegram handlers", async () => {
@@ -49,7 +55,7 @@ describe("CanvasNavigator", () => {
     navigator.back();
     await vi.waitFor(() => expect(renderer.render).toHaveBeenLastCalledWith({ kind: "gallery", session: session("newer", 2), artifacts: [artifact("artifact-newer", "newer")] }));
     navigator.back();
-    await vi.waitFor(() => expect(renderer.render).toHaveBeenLastCalledWith({ kind: "picker", sessions: [session("newer", 2), session("older", 1)] }));
+    await vi.waitFor(() => expect(renderer.render).toHaveBeenLastCalledWith({ kind: "picker", canvases: [canvas("artifact-newer", "newer", 2), canvas("artifact-older", "older", 1)] }));
     expect(backButton.offClick).toHaveBeenCalled();
     expect(backButton.hide).toHaveBeenCalled();
   });

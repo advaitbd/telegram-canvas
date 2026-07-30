@@ -27,6 +27,7 @@ import {
 } from "./routes/artifacts";
 import { handleStream } from "./routes/stream";
 import { handleMaintenance } from "./routes/maintenance";
+import { handleCreateShare, handlePublicDocument, handlePublicShare, handleRevokeShare } from "./routes/shares";
 
 export interface Env {
 	CANVAS_DB: D1Database;
@@ -97,6 +98,11 @@ export default {
 			return handleTrash(request, env.CANVAS_DB, trashMatch[1]);
 		}
 
+		const shareCreateMatch = path.match(/^\/api\/artifacts\/([^/]+)\/shares$/);
+		if (shareCreateMatch && method === "POST") return handleCreateShare(request, env.CANVAS_DB, shareCreateMatch[1]);
+		const shareRevokeMatch = path.match(/^\/api\/artifacts\/([^/]+)\/shares\/([a-f0-9]{48})$/);
+		if (shareRevokeMatch && method === "DELETE") return handleRevokeShare(request, env.CANVAS_DB, shareRevokeMatch[1], shareRevokeMatch[2]);
+
 		// /api/stream/:sessionId
 		const streamMatch = path.match(/^\/api\/stream\/([^/]+)$/);
 		if (streamMatch) {
@@ -112,6 +118,11 @@ export default {
 		if (path.startsWith("/internal/publish")) {
 			return handlePublish(request, env);
 		}
+
+		const publicDocumentMatch = path.match(/^\/s\/([a-f0-9]{48})\/document$/);
+		if (publicDocumentMatch && method === "GET") return handlePublicDocument(env.CANVAS_DB, env.CANVAS_ARTIFACTS, publicDocumentMatch[1]);
+		const publicShareMatch = path.match(/^\/s\/([a-f0-9]{48})$/);
+		if (publicShareMatch && method === "GET") return handlePublicShare(request, env.CANVAS_DB, publicShareMatch[1]);
 
 		// ── Static assets ───────────────────────────────────────────
 		return env.ASSETS.fetch(request);

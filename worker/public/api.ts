@@ -41,6 +41,12 @@ interface PublishResponse {
 	action: "created" | "updated";
 }
 
+export interface PublicShare {
+	token: string;
+	url: string;
+	expires_at: number;
+}
+
 export class CanvasApi {
 	/** Exchange Telegram WebApp init data for a session cookie. */
 	async login(initData: string): Promise<LoginResponse> {
@@ -120,9 +126,25 @@ export class CanvasApi {
 		return res.ok;
 	}
 
+	/** Create a public link to the current immutable revision. */
+	async createPublicShare(artifactId: string, ttlSeconds: number): Promise<PublicShare> {
+		const res = await fetch(`${API_BASE}/api/artifacts/${artifactId}/shares`, {
+			method: "POST",
+			credentials: "include",
+			headers: { "content-type": "application/json", ...this._csrfHeaders() },
+			body: JSON.stringify({ ttl_seconds: ttlSeconds }),
+		});
+		if (!res.ok) throw new Error("Failed to create public share");
+		return res.json();
+	}
+
 	/** Download the current revision as an attachment. */
 	getDownloadUrl(artifactId: string): string {
 		return `${API_BASE}/api/artifacts/${artifactId}/download`;
+	}
+
+	private _csrfHeaders(): Record<string, string> {
+		return { Origin: window.location.origin, "Sec-Fetch-Site": "same-origin", "X-CSRF-Token": this._getCsrfToken() };
 	}
 
 	private _getCsrfToken(): string {

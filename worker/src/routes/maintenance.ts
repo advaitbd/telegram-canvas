@@ -28,6 +28,7 @@ export async function handleMaintenance(
 			.bind(now)
 			.run();
 		results.cleaned_nonces = nonceResult.meta.changes;
+		await env.CANVAS_DB.prepare("DELETE FROM public_shares WHERE expires_at <= ?").bind(now).run();
 
 		// 2. Find and delete expired sessions + their artifacts + R2 blobs
 		const expiredSessions = await Sessions.selectExpiredSessions(env.CANVAS_DB);

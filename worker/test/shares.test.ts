@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { env } from "cloudflare:test";
 import type { D1Database, R2Bucket } from "@cloudflare/workers-types";
-import { handleCreateShare, handlePublicDocument, handlePublicShare, handleRevokeShare } from "../src/routes/shares";
+import { handleCreateShare, handleListShares, handlePublicDocument, handlePublicShare, handleRevokeShare } from "../src/routes/shares";
 import * as Artifacts from "../src/db/artifacts";
 import * as Sessions from "../src/db/sessions";
 
@@ -60,6 +60,18 @@ describe("public shares", () => {
 		expect(document.status).toBe(200);
 		expect(await document.text()).toContain("safe share");
 		expect(document.headers.get("content-security-policy")).toContain("sandbox allow-scripts");
+	});
+
+	it("lists an owner's active public links without exposing expired ones", async () => {
+		const active = await handleCreateShare(ownerRequest(`/api/artifacts/${artifactId}/shares`, "POST", { ttl_seconds: 86400 }), db, artifactId);
+		const { token } = await active.json() as { token: string };
+		await db.prepare("INSERT INTO public_shares (token, artifact_id, revision_id, expires_at) VALUES (?, ?, ?, ?)")
+			.bind("f".repeat(48), artifactId, "rev_public_share", Math.floor(Date.now() / 1000) - 1).run();
+		const res = await handleListShares(ownerRequest(`/api/artifacts/${artifactId}/shares`), db, artifactId);
+		expect(res.status).toBe(200);
+		const body = await res.json() as { shares: Array<{ token: string; url: string }> };
+		expect(body.shares.some((share) => share.token === token && share.url === `${origin}/s/${token}`)).toBe(true);
+		expect(body.shares.some((share) => share.token === "f".repeat(48))).toBe(false);
 	});
 
 	it("rejects invalid durations and revokes shares immediately", async () => {

@@ -1,4 +1,4 @@
-import { api, type ArtifactItem, type RevisionItem, type SessionItem } from "./api";
+import { api, type ArtifactItem, type PublicShare, type RevisionItem, type SessionItem } from "./api";
 import { CanvasNavigator, type CanvasRenderer, type TelegramBackButton } from "./navigation";
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -64,6 +64,7 @@ async function renderViewer(session: SessionItem, artifact: ArtifactItem, genera
     if (revisions[0]) loadDocument(artifact.id, revisions[0].id);
     else { renderer.showError("This canvas no longer has a ready revision."); return; }
     selector.onchange = () => loadDocument(artifact.id, selector.value);
+    void renderPublicShares(artifact, generation);
     $("btn-download").onclick = () => window.open(api.getDownloadUrl(artifact.id), "_blank", "noopener");
     $("btn-extend").onclick = async () => {
       if (await api.extendExpiry(artifact.id) && generation === renderGeneration) $("btn-extend").textContent = "Extended ✓";
@@ -79,6 +80,7 @@ async function renderViewer(session: SessionItem, artifact: ArtifactItem, genera
           window.prompt("Copy your public link", share.url);
           $("btn-share").textContent = "Public link ready";
         }
+        if (generation === renderGeneration) await renderPublicShares(artifact, generation);
       } catch { $("btn-share").textContent = "Could not create link"; }
     };
     $("btn-delete").onclick = async () => {
@@ -90,11 +92,48 @@ async function renderViewer(session: SessionItem, artifact: ArtifactItem, genera
   }
 }
 
+function renderShareRow(artifact: ArtifactItem, share: PublicShare, generation: number): HTMLDivElement {
+  const row = document.createElement("div");
+  row.className = "share-row";
+  const detail = document.createElement("span");
+  detail.className = "share-meta";
+  detail.textContent = `Public until ${formatDate(share.expires_at)}`;
+  const revoke = document.createElement("button");
+  revoke.type = "button";
+  revoke.className = "danger-button share-revoke";
+  revoke.textContent = "Unshare";
+  revoke.onclick = async () => {
+    if (!confirm("Unshare this public link? Anyone with it will lose access immediately.")) return;
+    revoke.disabled = true;
+    if (await api.revokePublicShare(artifact.id, share.token) && generation === renderGeneration) await renderPublicShares(artifact, generation);
+    else revoke.disabled = false;
+  };
+  row.append(detail, revoke);
+  return row;
+}
+
+async function renderPublicShares(artifact: ArtifactItem, generation: number): Promise<void> {
+  const list = $("public-share-list");
+  try {
+    const shares = await api.listPublicShares(artifact.id);
+    if (generation !== renderGeneration) return;
+    list.replaceChildren();
+    if (!shares.length) return;
+    const label = document.createElement("p");
+    label.className = "share-label";
+    label.textContent = "Active public links";
+    list.append(label, ...shares.map((share) => renderShareRow(artifact, share, generation)));
+  } catch {
+    if (generation === renderGeneration) list.replaceChildren();
+  }
+}
+
 function clearTransientContent(): void {
   closeViewerMenu(false);
   $<HTMLIFrameElement>("artifact-iframe").src = "about:blank";
   $<HTMLUListElement>("session-list").replaceChildren();
   $<HTMLUListElement>("artifact-list").replaceChildren();
+  $("public-share-list").replaceChildren();
   const selector = $<HTMLSelectElement>("revision-selector");
   selector.replaceChildren();
   selector.onchange = null;

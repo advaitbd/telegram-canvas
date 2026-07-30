@@ -138,6 +138,20 @@ export class CanvasApi {
 		return res.json();
 	}
 
+	async listPublicShares(artifactId: string): Promise<PublicShare[]> {
+		const res = await fetch(`${API_BASE}/api/artifacts/${artifactId}/shares`, { credentials: "include" });
+		if (!res.ok) throw new Error("Failed to list public shares");
+		const body = await res.json();
+		return body.shares ?? [];
+	}
+
+	async revokePublicShare(artifactId: string, token: string): Promise<boolean> {
+		const res = await fetch(`${API_BASE}/api/artifacts/${artifactId}/shares/${token}`, {
+			method: "DELETE", credentials: "include", headers: this._csrfHeaders(),
+		});
+		return res.ok;
+	}
+
 	/** Download the current revision as an attachment. */
 	getDownloadUrl(artifactId: string): string {
 		return `${API_BASE}/api/artifacts/${artifactId}/download`;

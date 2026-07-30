@@ -41,6 +41,18 @@ export async function handleCreateShare(request: Request, db: D1Database, artifa
 	return jsonOk({ token: shareToken, url: `${new URL(request.url).origin}/s/${shareToken}`, expires_at: expiresAt }, 201);
 }
 
+export async function handleListShares(request: Request, db: D1Database, artifactId: string): Promise<Response> {
+	const ownerHash = getOwnerFromCookie(request);
+	if (!ownerHash) return jsonError(401, "Unauthorized");
+	const artifact = await Artifacts.getArtifact(db, artifactId, ownerHash);
+	if (!artifact) return jsonError(404, "Not found");
+	const shares = await db.prepare(`SELECT token, expires_at FROM public_shares
+		WHERE artifact_id = ? AND expires_at > unixepoch() ORDER BY expires_at ASC`)
+		.bind(artifactId).all<{ token: string; expires_at: number }>();
+	const origin = new URL(request.url).origin;
+	return jsonOk({ shares: (shares.results ?? []).map((share) => ({ ...share, url: `${origin}/s/${share.token}` })) });
+}
+
 export async function handleRevokeShare(request: Request, db: D1Database, artifactId: string, shareToken: string): Promise<Response> {
 	const csrfError = csrfCheck(request);
 	if (csrfError) return csrfError;

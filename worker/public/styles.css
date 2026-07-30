@@ -35,6 +35,11 @@ h2 { font-size: clamp(1.5rem, 7vw, 2.1rem); letter-spacing: -.045em; line-height
 .revision-picker { width: 100%; padding: 0 10px; }
 .secondary-button, .danger-button { padding: 0 12px; font-size: .86rem; font-weight: 650; text-align: left; }
 .danger-button { color: #c64535; }
+.share-list { display: grid; gap: 8px; }
+.share-label { margin-top: 6px; color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .72rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.share-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0 0; border-top: 1px solid var(--line); }
+.share-meta { color: var(--muted); font-size: .8rem; line-height: 1.35; }
+.share-revoke { min-height: 36px; flex: 0 0 auto; }
 .error-text { color: #c64535; line-height: 1.45; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 

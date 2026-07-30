@@ -27,7 +27,7 @@ import {
 } from "./routes/artifacts";
 import { handleStream } from "./routes/stream";
 import { handleMaintenance } from "./routes/maintenance";
-import { handleCreateShare, handlePublicDocument, handlePublicShare, handleRevokeShare } from "./routes/shares";
+import { handleCreateShare, handleListShares, handlePublicDocument, handlePublicShare, handleRevokeShare } from "./routes/shares";
 
 export interface Env {
 	CANVAS_DB: D1Database;
@@ -98,8 +98,9 @@ export default {
 			return handleTrash(request, env.CANVAS_DB, trashMatch[1]);
 		}
 
-		const shareCreateMatch = path.match(/^\/api\/artifacts\/([^/]+)\/shares$/);
-		if (shareCreateMatch && method === "POST") return handleCreateShare(request, env.CANVAS_DB, shareCreateMatch[1]);
+		const sharesMatch = path.match(/^\/api\/artifacts\/([^/]+)\/shares$/);
+		if (sharesMatch && method === "GET") return handleListShares(request, env.CANVAS_DB, sharesMatch[1]);
+		if (sharesMatch && method === "POST") return handleCreateShare(request, env.CANVAS_DB, sharesMatch[1]);
 		const shareRevokeMatch = path.match(/^\/api\/artifacts\/([^/]+)\/shares\/([a-f0-9]{48})$/);
 		if (shareRevokeMatch && method === "DELETE") return handleRevokeShare(request, env.CANVAS_DB, shareRevokeMatch[1], shareRevokeMatch[2]);
 

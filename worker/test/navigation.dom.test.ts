@@ -15,6 +15,8 @@ const artifact = (id: string, session_id: string, created_at = 1): Artifact => (
 
 function fixture(overrides: Partial<CanvasApiLike> = {}) {
   const api: CanvasApiLike = {
+    bootstrap: vi.fn().mockResolvedValue({ session: session("newer", 2), artifact: artifact("artifact-newer", "newer") }),
+    getCachedBootstrap: vi.fn().mockReturnValue(null),
     listSessions: vi.fn().mockResolvedValue([session("older", 1), session("newer", 2)]),
     listArtifacts: vi.fn().mockImplementation(async (sessionId: string) => [artifact(`artifact-${sessionId}`, sessionId)]),
     listRevisions: vi.fn().mockResolvedValue([{ id: "revision", ordinal: 1, created_at: 1, status: "ready" }]),
@@ -36,7 +38,7 @@ describe("CanvasNavigator", () => {
   });
 
   it("shows the picker when the owner has no viewable artifacts", async () => {
-    const { navigator, renderer } = fixture({ listSessions: vi.fn().mockResolvedValue([]) });
+    const { navigator, renderer } = fixture({ bootstrap: vi.fn().mockResolvedValue(null), listSessions: vi.fn().mockResolvedValue([]) });
     await navigator.openDefault();
     expect(renderer.render).toHaveBeenLastCalledWith({ kind: "picker", sessions: [] });
   });
@@ -45,9 +47,9 @@ describe("CanvasNavigator", () => {
     const { navigator, renderer, backButton } = fixture();
     await navigator.openDefault();
     navigator.back();
-    expect(renderer.render).toHaveBeenLastCalledWith({ kind: "gallery", session: session("newer", 2), artifacts: [artifact("artifact-newer", "newer")] });
+    await vi.waitFor(() => expect(renderer.render).toHaveBeenLastCalledWith({ kind: "gallery", session: session("newer", 2), artifacts: [artifact("artifact-newer", "newer")] }));
     navigator.back();
-    expect(renderer.render).toHaveBeenLastCalledWith({ kind: "picker", sessions: [session("newer", 2), session("older", 1)] });
+    await vi.waitFor(() => expect(renderer.render).toHaveBeenLastCalledWith({ kind: "picker", sessions: [session("newer", 2), session("older", 1)] }));
     expect(backButton.offClick).toHaveBeenCalled();
     expect(backButton.hide).toHaveBeenCalled();
   });
@@ -65,20 +67,19 @@ describe("CanvasNavigator", () => {
     expect(renderer.render).toHaveBeenLastCalledWith({ kind: "gallery", session: session("newer"), artifacts: [artifact("fresh", "newer")] });
   });
 
-  it("reports auth failures and retries an empty default once", async () => {
-    const listSessions = vi.fn()
-      .mockResolvedValueOnce([session("empty")])
-      .mockResolvedValueOnce([session("usable")]);
-    const listArtifacts = vi.fn()
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([artifact("usable-artifact", "usable")]);
-    const { navigator, renderer } = fixture({ listSessions, listArtifacts });
+  it("renders a cached default while a refresh fails", async () => {
+    const cached = { session: session("cached", 3), artifact: artifact("cached-artifact", "cached") };
+    const { navigator, renderer } = fixture({
+      getCachedBootstrap: vi.fn().mockReturnValue(cached),
+      bootstrap: vi.fn().mockRejectedValue(new Error("offline")),
+    });
     await navigator.openDefault();
-    expect(renderer.render).toHaveBeenLastCalledWith({ kind: "viewer", session: session("usable"), artifact: artifact("usable-artifact", "usable") });
+    expect(renderer.render).toHaveBeenLastCalledWith({ kind: "viewer", ...cached });
+    expect(renderer.showError).not.toHaveBeenCalled();
   });
 
   it.each(["401 Unauthorized", "404 Not found"])("shows a precise recoverable error for %s", async (message) => {
-    const { navigator, renderer } = fixture({ listSessions: vi.fn().mockRejectedValue(new Error(message)) });
+    const { navigator, renderer } = fixture({ bootstrap: vi.fn().mockRejectedValue(new Error(message)) });
     await navigator.openDefault();
     expect(renderer.showError).toHaveBeenCalledWith(message.startsWith("401")
       ? "Your Canvas session has expired. Please retry from Telegram."

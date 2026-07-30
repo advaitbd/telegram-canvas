@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { env } from "cloudflare:test";
 import type { D1Database } from "@cloudflare/workers-types";
 
-import { handleListArtifacts, handleListSessions } from "../src/routes/sessions";
+import { handleBootstrap, handleListArtifacts, handleListSessions } from "../src/routes/sessions";
 
 declare module "cloudflare:test" {
   interface ProvidedEnv { CANVAS_DB: D1Database; }
@@ -60,6 +60,14 @@ describe("viewable Canvas listings", () => {
     await insertRevision("revision-b", "artifact-b", "ready");
     await insertRevision("revision-pending", "artifact-pending", "pending");
     await insertRevision("revision-ready-b", "artifact-ready-b", "ready");
+
+    const bootstrap = await (await handleBootstrap(requestFor("/api/bootstrap", owner), db)).json() as {
+      canvas: { session: { id: string }; artifact: { id: string; current_revision_id: string } };
+    };
+    expect(bootstrap.canvas).toEqual({
+      session: { id: "session-b", title: "session-b", artifact_count: 1, last_active_at: 100, expires_at: now + 3600 },
+      artifact: { id: "artifact-ready-b", session_id: "session-b", title: "artifact-ready-b", current_revision_id: "revision-ready-b", trashed_at: null, created_at: 70 },
+    });
 
     const sessions = await (await handleListSessions(requestFor("/api/sessions", owner), db)).json() as {
       sessions: Array<{ id: string; artifact_count: number }>;

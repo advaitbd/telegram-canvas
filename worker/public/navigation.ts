@@ -23,7 +23,14 @@ export interface Revision {
   status: string;
 }
 
+export interface BootstrapCanvas {
+  session: Session;
+  artifact: Artifact;
+}
+
 export interface CanvasApiLike {
+  bootstrap(): Promise<BootstrapCanvas | null>;
+  getCachedBootstrap(): BootstrapCanvas | null;
   listSessions(): Promise<Session[]>;
   listArtifacts(sessionId: string): Promise<Artifact[]>;
   listRevisions(artifactId: string): Promise<Revision[]>;
@@ -72,30 +79,29 @@ export class CanvasNavigator {
     private readonly backButton?: TelegramBackButton,
   ) {}
 
-  async openDefault(refreshed = false): Promise<void> {
+  async openDefault(): Promise<void> {
     const generation = this.nextGeneration();
+    const cached = this.api.getCachedBootstrap();
+    if (cached) this.setBootstrapView(cached);
     try {
-      const sessions = newestFirst(await this.api.listSessions(), "last_active_at");
+      const fresh = await this.api.bootstrap();
       if (!this.isCurrent(generation)) return;
-      this.sessions = sessions;
-      const artifactsBySession = new Map<string, Artifact[]>();
-      for (const candidate of sessions) {
-        const artifacts = newestFirst(await this.api.listArtifacts(candidate.id), "created_at");
-        if (!this.isCurrent(generation)) return;
-        artifactsBySession.set(candidate.id, artifacts);
-        this.artifactsBySession.set(candidate.id, artifacts);
-      }
-      const resolved = resolveDefaultArtifact(sessions, artifactsBySession);
-      if (resolved) {
-        this.setView({ kind: "viewer", ...resolved });
-      } else if (!refreshed && sessions.length > 0) {
-        await this.openDefault(true);
+      if (fresh) {
+        this.setBootstrapView(fresh);
       } else {
+        const sessions = newestFirst(await this.api.listSessions(), "last_active_at");
+        if (!this.isCurrent(generation)) return;
+        this.sessions = sessions;
         this.setView({ kind: "picker", sessions });
       }
     } catch (error) {
-      if (this.isCurrent(generation)) this.renderer.showError(errorMessage(error));
+      if (!cached && this.isCurrent(generation)) this.renderer.showError(errorMessage(error));
     }
+  }
+
+  private setBootstrapView(canvas: BootstrapCanvas): void {
+    this.sessions = [canvas.session];
+    this.setView({ kind: "viewer", session: canvas.session, artifact: canvas.artifact });
   }
 
   async openPicker(): Promise<void> {
@@ -136,7 +142,7 @@ export class CanvasNavigator {
         void this.openGallery(this.current.session);
       }
     } else if (this.current?.kind === "gallery") {
-      this.setView({ kind: "picker", sessions: this.sessions });
+      void this.openPicker();
     }
   }
 

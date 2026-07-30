@@ -20,7 +20,7 @@
 import type { D1Database, R2Bucket, DurableObjectNamespace } from "@cloudflare/workers-types";
 import { handlePublish } from "./routes/publish";
 import { handleTelegramAuth } from "./routes/auth";
-import { handleListSessions, handleListArtifacts } from "./routes/sessions";
+import { handleBootstrap, handleListSessions, handleListArtifacts } from "./routes/sessions";
 import {
 	handleGetArtifact, handleListRevisions, handleGetDocument,
 	handleDownload, handleExtend, handleTrash,
@@ -50,6 +50,10 @@ export default {
 		// ── Viewer API ──────────────────────────────────────────────
 		if (path === "/api/auth/telegram" && method === "POST") {
 			return handleTelegramAuth(request, env);
+		}
+
+		if (path === "/api/bootstrap" && method === "GET") {
+			return handleBootstrap(request, env.CANVAS_DB);
 		}
 
 		if (path === "/api/sessions" && method === "GET") {

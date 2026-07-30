@@ -56,13 +56,15 @@ async function renderViewer(session: SessionItem, artifact: ArtifactItem, genera
   $("viewer-title").textContent = title;
   $<HTMLIFrameElement>("artifact-iframe").title = title;
   showScreen("artifact-viewer");
+  if (artifact.current_revision_id) loadDocument(artifact.id, artifact.current_revision_id);
   const selector = $<HTMLSelectElement>("revision-selector");
   try {
     const revisions = await api.listRevisions(artifact.id);
     if (generation !== renderGeneration) return;
     for (const revision of revisions) selector.appendChild(revisionOption(revision));
-    if (revisions[0]) loadDocument(artifact.id, revisions[0].id);
-    else { renderer.showError("This canvas no longer has a ready revision."); return; }
+    if (revisions[0]) {
+      if (!artifact.current_revision_id) loadDocument(artifact.id, revisions[0].id);
+    } else { renderer.showError("This canvas no longer has a ready revision."); return; }
     selector.onchange = () => loadDocument(artifact.id, selector.value);
     void renderPublicShares(artifact, generation);
     $("btn-download").onclick = () => window.open(api.getDownloadUrl(artifact.id), "_blank", "noopener");
@@ -85,7 +87,10 @@ async function renderViewer(session: SessionItem, artifact: ArtifactItem, genera
     };
     $("btn-delete").onclick = async () => {
       closeViewerMenu(false);
-      if (confirm("Delete this artifact?") && await api.trashArtifact(artifact.id) && generation === renderGeneration) navigator.openGallery(session);
+      if (confirm("Delete this artifact?") && await api.trashArtifact(artifact.id) && generation === renderGeneration) {
+        api.clearCachedBootstrap();
+        navigator.openGallery(session);
+      }
     };
   } catch {
     if (generation === renderGeneration) renderer.showError("Could not load canvas revisions. Please retry.");

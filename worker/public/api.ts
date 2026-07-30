@@ -47,6 +47,14 @@ export interface PublicShare {
 	expires_at: number;
 }
 
+export interface BootstrapCanvas {
+	session: SessionItem;
+	artifact: ArtifactItem;
+}
+
+const BOOTSTRAP_CACHE_KEY = "canvas_bootstrap_v1";
+const BOOTSTRAP_CACHE_TTL_MS = 60_000;
+
 export class CanvasApi {
 	/** Exchange Telegram WebApp init data for a session cookie. */
 	async login(initData: string): Promise<LoginResponse> {
@@ -59,6 +67,30 @@ export class CanvasApi {
 		});
 		if (!res.ok) throw new Error("Login failed");
 		return res.json();
+	}
+
+	async bootstrap(): Promise<BootstrapCanvas | null> {
+		const res = await fetch(`${API_BASE}/api/bootstrap`, { credentials: "include" });
+		if (!res.ok) throw new Error("Failed to bootstrap Canvas");
+		const body = await res.json() as { canvas?: BootstrapCanvas | null };
+		if (body.canvas) this.setCachedBootstrap(body.canvas);
+		else sessionStorage.removeItem(BOOTSTRAP_CACHE_KEY);
+		return body.canvas ?? null;
+	}
+
+	getCachedBootstrap(): BootstrapCanvas | null {
+		try {
+			const stored = JSON.parse(sessionStorage.getItem(BOOTSTRAP_CACHE_KEY) ?? "null") as { cached_at: number; canvas: BootstrapCanvas } | null;
+			return stored && Date.now() - stored.cached_at <= BOOTSTRAP_CACHE_TTL_MS ? stored.canvas : null;
+		} catch { return null; }
+	}
+
+	clearCachedBootstrap(): void {
+		sessionStorage.removeItem(BOOTSTRAP_CACHE_KEY);
+	}
+
+	private setCachedBootstrap(canvas: BootstrapCanvas): void {
+		sessionStorage.setItem(BOOTSTRAP_CACHE_KEY, JSON.stringify({ cached_at: Date.now(), canvas }));
 	}
 
 	/** List eligible sessions. */

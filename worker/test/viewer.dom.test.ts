@@ -3,6 +3,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = {
   login: vi.fn(),
+  bootstrap: vi.fn(),
+  getCachedBootstrap: vi.fn(),
+  clearCachedBootstrap: vi.fn(),
   listSessions: vi.fn(),
   listArtifacts: vi.fn(),
   listRevisions: vi.fn(),
@@ -21,6 +24,8 @@ async function mount(): Promise<void> {
   document.documentElement.innerHTML = readFileSync("public/index.html", "utf8");
   Object.defineProperty(window, "Telegram", { configurable: true, value: { WebApp: { initData: "telegram-init", ready: vi.fn(), expand: vi.fn() } } });
   api.login.mockResolvedValue(undefined);
+  api.getCachedBootstrap.mockReturnValue(null);
+  api.bootstrap.mockResolvedValue({ session, artifact });
   api.listSessions.mockResolvedValue([session]);
   api.listArtifacts.mockResolvedValue([artifact]);
   api.listRevisions.mockResolvedValue([{ id: "revision-1", ordinal: 1, created_at: 1, status: "ready" }]);
@@ -79,7 +84,7 @@ describe("fullscreen canvas viewer", () => {
   it("uses navigator back from the persistent back control", async () => {
     await mount();
     document.querySelector<HTMLButtonElement>("#back-to-gallery")!.click();
-    expect(document.querySelector("#artifact-gallery")!.classList.contains("hidden")).toBe(false);
+    await vi.waitFor(() => expect(document.querySelector("#artifact-gallery")!.classList.contains("hidden")).toBe(false));
     expect(document.body.classList.contains("viewer-active")).toBe(false);
   });
 });

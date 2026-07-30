@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { env } from "cloudflare:test";
 import type { D1Database } from "@cloudflare/workers-types";
 
-import { handleBootstrap, handleListArtifacts, handleListSessions } from "../src/routes/sessions";
+import { handleBootstrap, handleListArtifacts, handleListCanvases, handleListSessions } from "../src/routes/sessions";
 
 declare module "cloudflare:test" {
   interface ProvidedEnv { CANVAS_DB: D1Database; }
@@ -75,6 +75,15 @@ describe("viewable Canvas listings", () => {
     expect(sessions.sessions).toEqual([
       { id: "session-b", title: "session-b", artifact_count: 1, last_active_at: 100, expires_at: now + 3600 },
       { id: "session-a", title: "session-a", artifact_count: 2, last_active_at: 100, expires_at: now + 3600 },
+    ]);
+
+    const canvases = await (await handleListCanvases(requestFor("/api/canvases", owner), db)).json() as {
+      canvases: Array<{ id: string; revision_count: number; current_revision_bytes: number; session_title: string }>;
+    };
+    expect(canvases.canvases.map(({ id, revision_count, current_revision_bytes, session_title }) => ({ id, revision_count, current_revision_bytes, session_title }))).toEqual([
+      { id: "artifact-ready-b", revision_count: 1, current_revision_bytes: 1, session_title: "session-b" },
+      { id: "artifact-b", revision_count: 1, current_revision_bytes: 1, session_title: "session-a" },
+      { id: "artifact-a", revision_count: 1, current_revision_bytes: 1, session_title: "session-a" },
     ]);
 
     const artifacts = await (await handleListArtifacts(requestFor("/api/sessions/session-a/artifacts", owner), db, "session-a")).json() as {

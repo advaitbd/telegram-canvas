@@ -7,6 +7,7 @@ const api = {
   getCachedBootstrap: vi.fn(),
   clearCachedBootstrap: vi.fn(),
   listSessions: vi.fn(),
+  listCanvases: vi.fn(),
   listArtifacts: vi.fn(),
   listRevisions: vi.fn(),
   getDocumentUrl: vi.fn(),
@@ -27,6 +28,7 @@ async function mount(): Promise<void> {
   api.getCachedBootstrap.mockReturnValue(null);
   api.bootstrap.mockResolvedValue({ session, artifact });
   api.listSessions.mockResolvedValue([session]);
+  api.listCanvases.mockResolvedValue([{ ...artifact, session_title: session.title, session_last_active_at: session.last_active_at, session_expires_at: session.expires_at, revision_count: 1, current_revision_bytes: 512, updated_at: artifact.created_at }]);
   api.listArtifacts.mockResolvedValue([artifact]);
   api.listRevisions.mockResolvedValue([{ id: "revision-1", ordinal: 1, created_at: 1, status: "ready" }]);
   api.getDocumentUrl.mockReturnValue("/documents/artifact-1/revision-1");

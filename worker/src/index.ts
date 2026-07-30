@@ -20,7 +20,7 @@
 import type { D1Database, R2Bucket, DurableObjectNamespace } from "@cloudflare/workers-types";
 import { handlePublish } from "./routes/publish";
 import { handleTelegramAuth } from "./routes/auth";
-import { handleBootstrap, handleListSessions, handleListArtifacts } from "./routes/sessions";
+import { handleBootstrap, handleListSessions, handleListCanvases, handleListArtifacts } from "./routes/sessions";
 import {
 	handleGetArtifact, handleListRevisions, handleGetDocument,
 	handleDownload, handleExtend, handleTrash,
@@ -58,6 +58,10 @@ export default {
 
 		if (path === "/api/sessions" && method === "GET") {
 			return handleListSessions(request, env.CANVAS_DB);
+		}
+
+		if (path === "/api/canvases" && method === "GET") {
+			return handleListCanvases(request, env.CANVAS_DB);
 		}
 
 		// /api/sessions/:id/artifacts

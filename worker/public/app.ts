@@ -1,4 +1,4 @@
-import { api, type ArtifactItem, type PublicShare, type RevisionItem, type SessionItem } from "./api";
+import { api, type ArtifactItem, type CanvasItem, type PublicShare, type RevisionItem, type SessionItem } from "./api";
 import { CanvasNavigator, type CanvasRenderer, type TelegramBackButton } from "./navigation";
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
@@ -9,7 +9,7 @@ const renderer: CanvasRenderer = {
   render(view) {
     renderGeneration += 1;
     clearTransientContent();
-    if (view.kind === "picker") renderPicker(view.sessions);
+    if (view.kind === "picker") renderPicker(view.canvases);
     if (view.kind === "gallery") renderGallery(view.session, view.artifacts);
     if (view.kind === "viewer") void renderViewer(view.session, view.artifact, renderGeneration);
   },
@@ -36,11 +36,35 @@ async function init(): Promise<void> {
   }
 }
 
-function renderPicker(sessions: SessionItem[]): void {
+function renderPicker(canvases: CanvasItem[]): void {
   showScreen("session-picker");
   const list = $<HTMLUListElement>("session-list");
-  if (!sessions.length) { appendEmpty(list, "No canvases yet — ask the agent to publish one."); return; }
-  for (const session of sessions) list.appendChild(listButton(session.title || `Session ${session.id.slice(0, 8)}`, `${session.artifact_count} artifact${session.artifact_count === 1 ? "" : "s"}`, () => void navigator.openGallery(session)));
+  $("canvas-count").textContent = `${canvases.length} canvas${canvases.length === 1 ? "" : "es"}`;
+  if (!canvases.length) { appendEmpty(list, "No canvases yet. Ask the agent to publish one, then it will live here."); return; }
+  for (const canvas of canvases) list.appendChild(canvasCard(canvas));
+}
+
+function canvasCard(canvas: CanvasItem): HTMLLIElement {
+  const item = document.createElement("li"); item.className = "canvas-card";
+  const open = document.createElement("button"); open.type = "button"; open.className = "canvas-open";
+  open.onclick = () => navigator.openViewer(toSession(canvas), canvas);
+  const title = document.createElement("span"); title.className = "item-title"; title.textContent = canvas.title || "Untitled canvas";
+  const session = document.createElement("span"); session.className = "canvas-session"; session.textContent = canvas.session_title || "Untitled session";
+  const meta = document.createElement("span"); meta.className = "canvas-meta";
+  meta.textContent = `${canvas.revision_count} revision${canvas.revision_count === 1 ? "" : "s"} · ${formatBytes(canvas.current_revision_bytes)} · updated ${formatRelativeDate(canvas.updated_at ?? canvas.created_at)} · expires ${formatRelativeDate(canvas.session_expires_at)}`;
+  open.append(title, session, meta);
+  const remove = document.createElement("button"); remove.type = "button"; remove.className = "canvas-delete"; remove.textContent = "Delete";
+  remove.onclick = async () => {
+    if (!confirm(`Delete “${canvas.title || "Untitled canvas"}”? You can restore it only by republishing.`)) return;
+    remove.disabled = true;
+    if (await api.trashArtifact(canvas.id)) { api.clearCachedBootstrap(); void navigator.openPicker(); }
+    else { remove.disabled = false; remove.textContent = "Try again"; }
+  };
+  item.append(open, remove); return item;
+}
+
+function toSession(canvas: CanvasItem): SessionItem {
+  return { id: canvas.session_id, title: canvas.session_title, artifact_count: 1, last_active_at: canvas.session_last_active_at, expires_at: canvas.session_expires_at };
 }
 
 function renderGallery(session: SessionItem, artifacts: ArtifactItem[]): void {
@@ -178,6 +202,14 @@ function showScreen(id: string): void {
   document.body.classList.toggle("viewer-active", id === "artifact-viewer");
 }
 function formatDate(timestamp: number): string { return new Date(timestamp * 1000).toLocaleDateString(); }
+function formatRelativeDate(timestamp: number): string {
+  const days = Math.round((timestamp * 1000 - Date.now()) / 86_400_000);
+  if (days === 0) return "today";
+  if (days === 1) return "tomorrow";
+  if (days === -1) return "yesterday";
+  return days > 0 ? `in ${days}d` : `${Math.abs(days)}d ago`;
+}
+function formatBytes(bytes: number): string { return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(bytes < 10_240 ? 1 : 0)} KB`; }
 
 $("back-to-sessions").onclick = () => void navigator.openPicker();
 $("back-to-gallery").onclick = () => { closeViewerMenu(false); navigator.back(); };

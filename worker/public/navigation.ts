@@ -16,6 +16,15 @@ export interface Artifact {
   created_at: number;
 }
 
+export interface Canvas extends Artifact {
+	session_title: string;
+	session_last_active_at: number;
+	session_expires_at: number;
+	revision_count: number;
+	current_revision_bytes: number;
+	updated_at: number;
+}
+
 export interface Revision {
   id: string;
   ordinal: number;
@@ -31,13 +40,13 @@ export interface BootstrapCanvas {
 export interface CanvasApiLike {
   bootstrap(): Promise<BootstrapCanvas | null>;
   getCachedBootstrap(): BootstrapCanvas | null;
-  listSessions(): Promise<Session[]>;
+  listCanvases(): Promise<Canvas[]>;
   listArtifacts(sessionId: string): Promise<Artifact[]>;
   listRevisions(artifactId: string): Promise<Revision[]>;
 }
 
 export type NavigationView =
-  | { kind: "picker"; sessions: Session[] }
+  | { kind: "picker"; canvases: Canvas[] }
   | { kind: "gallery"; session: Session; artifacts: Artifact[] }
   | { kind: "viewer"; session: Session; artifact: Artifact };
 
@@ -68,7 +77,6 @@ export function resolveDefaultArtifact(sessions: Session[], artifactsBySession: 
 /** Navigation state machine with a generation token to ignore stale async work. */
 export class CanvasNavigator {
   private generation = 0;
-  private sessions: Session[] = [];
   private readonly artifactsBySession = new Map<string, Artifact[]>();
   private current: NavigationView | null = null;
   private readonly onTelegramBack = () => this.back();
@@ -89,10 +97,9 @@ export class CanvasNavigator {
       if (fresh) {
         this.setBootstrapView(fresh);
       } else {
-        const sessions = newestFirst(await this.api.listSessions(), "last_active_at");
+        const canvases = newestFirst(await this.api.listCanvases(), "updated_at");
         if (!this.isCurrent(generation)) return;
-        this.sessions = sessions;
-        this.setView({ kind: "picker", sessions });
+        this.setView({ kind: "picker", canvases });
       }
     } catch (error) {
       if (!cached && this.isCurrent(generation)) this.renderer.showError(errorMessage(error));
@@ -100,17 +107,15 @@ export class CanvasNavigator {
   }
 
   private setBootstrapView(canvas: BootstrapCanvas): void {
-    this.sessions = [canvas.session];
     this.setView({ kind: "viewer", session: canvas.session, artifact: canvas.artifact });
   }
 
   async openPicker(): Promise<void> {
     const generation = this.nextGeneration();
     try {
-      const sessions = newestFirst(await this.api.listSessions(), "last_active_at");
+      const canvases = newestFirst(await this.api.listCanvases(), "updated_at");
       if (!this.isCurrent(generation)) return;
-      this.sessions = sessions;
-      this.setView({ kind: "picker", sessions });
+      this.setView({ kind: "picker", canvases });
     } catch (error) {
       if (this.isCurrent(generation)) this.renderer.showError(errorMessage(error));
     }

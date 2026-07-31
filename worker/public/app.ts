@@ -99,10 +99,11 @@ async function renderViewer(session: SessionItem, artifact: ArtifactItem, genera
       try {
         const duration = Number($<HTMLSelectElement>("share-duration").value);
         const share = await api.createPublicShare(artifact.id, duration);
-        if (window.navigator.clipboard?.writeText) {
+        try {
+          if (!window.navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
           await window.navigator.clipboard.writeText(share.url);
           $("btn-share").textContent = "Public link copied ✓";
-        } else {
+        } catch {
           window.prompt("Copy your public link", share.url);
           $("btn-share").textContent = "Public link ready";
         }

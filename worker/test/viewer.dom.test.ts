@@ -14,6 +14,9 @@ const api = {
   getDownloadUrl: vi.fn(),
   extendExpiry: vi.fn(),
   trashArtifact: vi.fn(),
+  createPublicShare: vi.fn(),
+  listPublicShares: vi.fn(),
+  revokePublicShare: vi.fn(),
 };
 
 vi.mock("../public/api", () => ({ api }));
@@ -35,6 +38,8 @@ async function mount(): Promise<void> {
   api.getDownloadUrl.mockReturnValue("/downloads/artifact-1");
   api.extendExpiry.mockResolvedValue(true);
   api.trashArtifact.mockResolvedValue(true);
+  api.listPublicShares.mockResolvedValue([]);
+  api.revokePublicShare.mockResolvedValue(true);
   vi.resetModules();
   await import("../public/app");
   document.dispatchEvent(new Event("DOMContentLoaded"));
@@ -88,5 +93,15 @@ describe("fullscreen canvas viewer", () => {
     document.querySelector<HTMLButtonElement>("#back-to-gallery")!.click();
     await vi.waitFor(() => expect(document.querySelector("#artifact-gallery")!.classList.contains("hidden")).toBe(false));
     expect(document.body.classList.contains("viewer-active")).toBe(false);
+  });
+
+  it("keeps a successfully created public share available when Telegram rejects clipboard access", async () => {
+    await mount();
+    api.createPublicShare.mockResolvedValue({ token: "a".repeat(48), url: "https://canvas.advaitdeshpande.com/s/test", expires_at: 99 });
+    const prompt = vi.spyOn(window, "prompt").mockReturnValue(null);
+    Object.defineProperty(window.navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error("NotAllowedError")) } });
+    document.querySelector<HTMLButtonElement>("#btn-share")!.click();
+    await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith("Copy your public link", "https://canvas.advaitdeshpande.com/s/test"));
+    expect(document.querySelector<HTMLButtonElement>("#btn-share")!.textContent).toBe("Public link ready");
   });
 });

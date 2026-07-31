@@ -104,8 +104,7 @@ async function renderViewer(session: SessionItem, artifact: ArtifactItem, genera
           await window.navigator.clipboard.writeText(share.url);
           $("btn-share").textContent = "Public link copied ✓";
         } catch {
-          window.prompt("Copy your public link", share.url);
-          $("btn-share").textContent = "Public link ready";
+          $("btn-share").textContent = "Public link ready below";
         }
         if (generation === renderGeneration) await renderPublicShares(artifact, generation);
       } catch { $("btn-share").textContent = "Could not create link"; }
@@ -125,9 +124,18 @@ async function renderViewer(session: SessionItem, artifact: ArtifactItem, genera
 function renderShareRow(artifact: ArtifactItem, share: PublicShare, generation: number): HTMLDivElement {
   const row = document.createElement("div");
   row.className = "share-row";
-  const detail = document.createElement("span");
-  detail.className = "share-meta";
-  detail.textContent = `Public until ${formatDate(share.expires_at)}`;
+  const detail = document.createElement("div");
+  detail.className = "share-detail";
+  const expiry = document.createElement("span");
+  expiry.className = "share-meta";
+  expiry.textContent = `Public until ${formatDate(share.expires_at)}`;
+  const url = document.createElement("input");
+  url.className = "share-url";
+  url.type = "url";
+  url.readOnly = true;
+  url.value = share.url;
+  url.setAttribute("aria-label", "Public canvas link, select and copy");
+  detail.append(expiry, url);
   const revoke = document.createElement("button");
   revoke.type = "button";
   revoke.className = "danger-button share-revoke";

@@ -95,13 +95,14 @@ describe("fullscreen canvas viewer", () => {
     expect(document.body.classList.contains("viewer-active")).toBe(false);
   });
 
-  it("keeps a successfully created public share available when Telegram rejects clipboard access", async () => {
+  it("shows the created public URL when Telegram rejects clipboard access", async () => {
     await mount();
-    api.createPublicShare.mockResolvedValue({ token: "a".repeat(48), url: "https://canvas.advaitdeshpande.com/s/test", expires_at: 99 });
-    const prompt = vi.spyOn(window, "prompt").mockReturnValue(null);
+    const share = { token: "a".repeat(48), url: "https://canvas.advaitdeshpande.com/s/test", expires_at: 99 };
+    api.createPublicShare.mockResolvedValue(share);
+    api.listPublicShares.mockResolvedValue([share]);
     Object.defineProperty(window.navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error("NotAllowedError")) } });
     document.querySelector<HTMLButtonElement>("#btn-share")!.click();
-    await vi.waitFor(() => expect(prompt).toHaveBeenCalledWith("Copy your public link", "https://canvas.advaitdeshpande.com/s/test"));
-    expect(document.querySelector<HTMLButtonElement>("#btn-share")!.textContent).toBe("Public link ready");
+    await vi.waitFor(() => expect(document.querySelector<HTMLInputElement>(".share-url")!.value).toBe(share.url));
+    expect(document.querySelector<HTMLButtonElement>("#btn-share")!.textContent).toBe("Public link ready below");
   });
 });

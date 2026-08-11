@@ -11,24 +11,23 @@
 <body>
   <main id="app">
     <header class="masthead">
-      <p class="eyebrow">HERMES / CANVAS</p>
       <h1>Canvas</h1>
     </header>
-    <div id="loading-screen" class="screen" role="status">Opening your latest canvas…</div>
+    <div id="loading-screen" class="screen loading-state" role="status">Opening canvas…</div>
     <section id="session-picker" class="screen hidden" aria-labelledby="picker-title">
-      <div class="title-row"><div><p class="eyebrow">ARCHIVE</p><h2 id="picker-title">All canvases</h2></div><p id="canvas-count" class="canvas-count"></p></div>
+      <div class="title-row"><h2 id="picker-title">Your canvases</h2><p id="canvas-count" class="canvas-count"></p></div>
       <ul id="session-list" class="list" aria-label="Canvas sessions"></ul>
     </section>
     <section id="artifact-gallery" class="screen hidden" aria-labelledby="gallery-title">
       <div class="action-row"><button id="back-to-sessions" class="text-button" type="button">← All canvases</button></div>
-      <div><p class="eyebrow">SESSION</p><h2 id="gallery-title">Artifacts</h2></div>
+      <h2 id="gallery-title">Artifacts</h2>
       <ul id="artifact-list" class="list" aria-label="Artifacts in this session"></ul>
     </section>
     <section id="artifact-viewer" class="screen hidden" aria-labelledby="viewer-title">
       <h2 id="viewer-title" class="visually-hidden">Canvas artifact</h2>
       <div id="iframe-container"><iframe id="artifact-iframe" title="Canvas artifact" sandbox="allow-scripts" loading="lazy"></iframe></div>
-      <button id="back-to-gallery" class="viewer-float viewer-back" type="button" aria-label="Back to session artifacts">←</button>
-      <button id="viewer-menu-toggle" class="viewer-float viewer-menu-toggle" type="button" aria-label="Canvas actions" aria-controls="viewer-menu" aria-expanded="false">⋮</button>
+      <button id="back-to-gallery" class="viewer-control viewer-back" type="button" aria-label="Back to session artifacts">←</button>
+      <button id="viewer-menu-toggle" class="viewer-control viewer-menu-toggle" type="button" aria-label="Canvas actions" aria-controls="viewer-menu" aria-expanded="false">•••</button>
       <section id="viewer-menu" class="viewer-menu" aria-label="Canvas actions" hidden>
         <label class="visually-hidden" for="revision-selector">Revision</label>
         <select id="revision-selector" class="revision-picker"></select>

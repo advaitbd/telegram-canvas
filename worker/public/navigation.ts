@@ -173,7 +173,9 @@ export class CanvasNavigator {
 }
 
 function errorMessage(error: unknown): string {
-  return error instanceof Error && /401|unauthor/i.test(error.message)
-    ? "Your Canvas session has expired. Please retry from Telegram."
-    : "Could not load Canvas. Please try again.";
+  if (error instanceof Error && /401|unauthor/i.test(error.message)) {
+    return "Your Canvas session has expired. Please retry from Telegram.";
+  }
+  const raw = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  return `Could not load Canvas. [${raw}]`;
 }

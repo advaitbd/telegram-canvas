@@ -9,11 +9,13 @@ model-provided identity values.
 """
 
 from __future__ import annotations
-
+from datetime import datetime
 import hashlib
 import hmac
 import json
 import os
+import re
+import sqlite3
 import time
 import uuid
 
@@ -31,6 +33,58 @@ def _publisher_secret() -> str:
 
 def _key_id() -> str:
     return os.environ.get("CANVAS_KEY_ID", "key1")
+
+_SHELL_TITLE_RE = re.compile(
+    r"^(?:[$#]\s*)?(?:"
+    r"cd|chmod|cp|curl|docker|echo|find|git|grep|head|ls|mkdir|mv|npx|npm|"
+    r"pip|pkill|pwd|python(?:\d+(?:\.\d+)?)?|rg|rm|sed|sh|ssh|sudo|tail|"
+    r"tar|touch|uv|wget|which|xargs"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def cleanTitle(title: str, chat_name: str, last_activity_at: object) -> str:
+    """Return a useful session title without exposing prompt/system text."""
+    candidate = str(title or "").strip()
+    lowered = candidate.casefold()
+    unusable = (
+        not candidate
+        or len(candidate) > 90
+        or lowered.startswith(("[note:", "[replying to:", "[advait] ", "system information"))
+        or _SHELL_TITLE_RE.match(candidate) is not None
+    )
+    if not unusable:
+        return candidate
+
+    try:
+        timestamp = float(last_activity_at)
+        date = datetime.fromtimestamp(timestamp).strftime("%b %d")
+    except (TypeError, ValueError, OSError, OverflowError):
+        date = datetime.now().strftime("%b %d")
+    return f"{str(chat_name or '').strip() or 'Chat'} · {date}"
+
+
+def _read_session_metadata(session_id: str) -> tuple[str, str, object]:
+    """Read persisted session metadata without ever opening state.db writable."""
+    path = os.path.expanduser("~/.hermes/state.db")
+    try:
+        db = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        try:
+            row = db.execute(
+                "SELECT title, display_name, last_activity_at FROM sessions WHERE id = ?",
+                (session_id,),
+            ).fetchone()
+        finally:
+            db.close()
+    except (OSError, sqlite3.Error):
+        return "", "", None
+    return (str(row[0] or ""), str(row[1] or ""), row[2]) if row else ("", "", None)
+
+
+def _session_title(session_id: str, chat_name: str) -> str:
+    title, _display_name, last_activity_at = _read_session_metadata(session_id)
+    return cleanTitle(title, chat_name, last_activity_at)
 
 # ---------------------------------------------------------------------------
 # Signing — matches the canonical v1 format in the Worker
@@ -82,7 +136,8 @@ def _publish_handler(args: dict, **kwargs) -> str:
 
     telegram_creator_id = get_session_env("HERMES_SESSION_USER_ID", "")
     hermes_session_id = get_session_env("HERMES_SESSION_ID", "")
-    session_title = get_session_env("HERMES_SESSION_CHAT_NAME", "")
+    chat_name = get_session_env("HERMES_SESSION_CHAT_NAME", "")
+    session_title = _session_title(hermes_session_id, chat_name)
 
     if not telegram_creator_id or not hermes_session_id:
         return json.dumps({
@@ -111,6 +166,8 @@ def _publish_handler(args: dict, **kwargs) -> str:
         "title": title,
         "html": html,
     }
+    if chat_name:
+        body["chat_name"] = chat_name
     if artifact_id:
         body["artifact_id"] = artifact_id
 

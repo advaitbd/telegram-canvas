@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS session_records (
     owner_hash    TEXT NOT NULL,
     session_hash  TEXT NOT NULL,
     title         TEXT NOT NULL DEFAULT '',
+    chat_name     TEXT NOT NULL DEFAULT '',
     last_active_at INTEGER NOT NULL DEFAULT (unixepoch()),
     expires_at    INTEGER NOT NULL DEFAULT (unixepoch() + 2592000), -- +30 days
     created_at    INTEGER NOT NULL DEFAULT (unixepoch()),

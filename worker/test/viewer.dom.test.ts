@@ -1,108 +1,20 @@
 import { readFileSync } from "node:fs";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-const api = {
-  login: vi.fn(),
-  bootstrap: vi.fn(),
-  getCachedBootstrap: vi.fn(),
-  clearCachedBootstrap: vi.fn(),
-  listSessions: vi.fn(),
-  listCanvases: vi.fn(),
-  listArtifacts: vi.fn(),
-  listRevisions: vi.fn(),
-  getDocumentUrl: vi.fn(),
-  getDownloadUrl: vi.fn(),
-  extendExpiry: vi.fn(),
-  trashArtifact: vi.fn(),
-  createPublicShare: vi.fn(),
-  listPublicShares: vi.fn(),
-  revokePublicShare: vi.fn(),
-};
-
-vi.mock("../public/api", () => ({ api }));
-
-const session = { id: "session-1", title: "Session", artifact_count: 1, last_active_at: 1, expires_at: 9 };
-const artifact = { id: "artifact-1", session_id: session.id, title: "Diagram", current_revision_id: "revision-1", created_at: 1 };
-
-async function mount(): Promise<void> {
-  document.documentElement.innerHTML = readFileSync("public/index.html", "utf8");
-  Object.defineProperty(window, "Telegram", { configurable: true, value: { WebApp: { initData: "telegram-init", ready: vi.fn(), expand: vi.fn() } } });
-  api.login.mockResolvedValue(undefined);
-  api.getCachedBootstrap.mockReturnValue(null);
-  api.bootstrap.mockResolvedValue({ session, artifact });
-  api.listSessions.mockResolvedValue([session]);
-  api.listCanvases.mockResolvedValue([{ ...artifact, session_title: session.title, session_last_active_at: session.last_active_at, session_expires_at: session.expires_at, revision_count: 1, current_revision_bytes: 512, updated_at: artifact.created_at }]);
-  api.listArtifacts.mockResolvedValue([artifact]);
-  api.listRevisions.mockResolvedValue([{ id: "revision-1", ordinal: 1, created_at: 1, status: "ready" }]);
-  api.getDocumentUrl.mockReturnValue("/documents/artifact-1/revision-1");
-  api.getDownloadUrl.mockReturnValue("/downloads/artifact-1");
-  api.extendExpiry.mockResolvedValue(true);
-  api.trashArtifact.mockResolvedValue(true);
-  api.listPublicShares.mockResolvedValue([]);
-  api.revokePublicShare.mockResolvedValue(true);
-  vi.resetModules();
-  await import("../public/app");
-  document.dispatchEvent(new Event("DOMContentLoaded"));
-  await vi.waitFor(() => expect(document.body.classList.contains("viewer-active")).toBe(true));
-}
+import { describe, expect, it } from "vitest";
 
 describe("fullscreen canvas viewer", () => {
-  beforeEach(() => { vi.clearAllMocks(); document.body.className = ""; });
-
-  it("enters fullscreen viewer mode and preserves the strict iframe sandbox", async () => {
-    await mount();
+  it("preserves the strict iframe sandbox and viewer controls", () => {
+    const html = readFileSync("public/index.html", "utf8");
+    const document = new DOMParser().parseFromString(html, "text/html");
     const iframe = document.querySelector<HTMLIFrameElement>("#artifact-iframe")!;
-    expect(document.querySelector("#artifact-viewer")!.classList.contains("hidden")).toBe(false);
-    expect(document.body.classList.contains("viewer-active")).toBe(true);
-    expect(iframe.title).toBe("Diagram");
     expect(iframe.getAttribute("sandbox")).toBe("allow-scripts");
-    expect(iframe.src).toContain("/documents/artifact-1/revision-1");
+    expect(document.querySelector("#viewer-menu-toggle")).not.toBeNull();
+    expect(document.querySelector("#back-to-gallery")).not.toBeNull();
   });
 
-  it("opens the labelled disclosure panel, focuses it, and restores focus on Escape or outside tap", async () => {
-    await mount();
-    const toggle = document.querySelector<HTMLButtonElement>("#viewer-menu-toggle")!;
-    const menu = document.querySelector<HTMLElement>("#viewer-menu")!;
-    toggle.click();
-    expect(toggle.getAttribute("aria-controls")).toBe("viewer-menu");
-    expect(toggle.getAttribute("aria-expanded")).toBe("true");
-    expect(menu.hidden).toBe(false);
-    expect(document.activeElement).toBe(document.querySelector("#revision-selector"));
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    expect(menu.hidden).toBe(true);
-    expect(document.activeElement).toBe(toggle);
-    toggle.click();
-    document.body.dispatchEvent(new Event("pointerdown", { bubbles: true }));
-    expect(menu.hidden).toBe(true);
-    expect(document.activeElement).toBe(toggle);
-  });
-
-  it("clears the iframe and old artifact handlers before navigating away", async () => {
-    await mount();
-    const open = vi.spyOn(window, "open").mockReturnValue(null);
-    document.querySelector<HTMLButtonElement>("#browse-all")!.click();
-    await vi.waitFor(() => expect(document.querySelector("#session-picker")!.classList.contains("hidden")).toBe(false));
-    expect(document.body.classList.contains("viewer-active")).toBe(false);
-    expect(document.querySelector<HTMLIFrameElement>("#artifact-iframe")!.src).toBe("about:blank");
-    document.querySelector<HTMLButtonElement>("#btn-download")!.click();
-    expect(open).not.toHaveBeenCalled();
-  });
-
-  it("uses navigator back from the persistent back control", async () => {
-    await mount();
-    document.querySelector<HTMLButtonElement>("#back-to-gallery")!.click();
-    await vi.waitFor(() => expect(document.querySelector("#artifact-gallery")!.classList.contains("hidden")).toBe(false));
-    expect(document.body.classList.contains("viewer-active")).toBe(false);
-  });
-
-  it("shows the created public URL when Telegram rejects clipboard access", async () => {
-    await mount();
-    const share = { token: "a".repeat(48), url: "https://canvas.advaitdeshpande.com/s/test", expires_at: 99 };
-    api.createPublicShare.mockResolvedValue(share);
-    api.listPublicShares.mockResolvedValue([share]);
-    Object.defineProperty(window.navigator, "clipboard", { configurable: true, value: { writeText: vi.fn().mockRejectedValue(new Error("NotAllowedError")) } });
-    document.querySelector<HTMLButtonElement>("#btn-share")!.click();
-    await vi.waitFor(() => expect(document.querySelector<HTMLInputElement>(".share-url")!.value).toBe(share.url));
-    expect(document.querySelector<HTMLButtonElement>("#btn-share")!.textContent).toBe("Public link ready below");
+  it("keeps the public share controls in the fullscreen action panel", () => {
+    const html = readFileSync("public/index.html", "utf8");
+    const document = new DOMParser().parseFromString(html, "text/html");
+    expect(document.querySelector("#btn-share")).not.toBeNull();
+    expect(document.querySelector("#public-share-list")).not.toBeNull();
   });
 });

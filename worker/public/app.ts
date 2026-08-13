@@ -9,7 +9,8 @@ const renderer: CanvasRenderer = {
   render(view) {
     renderGeneration += 1;
     clearTransientContent();
-    if (view.kind === "picker") renderPicker(view.canvases);
+    if (view.kind === "picker") renderPicker(view.sessions);
+    if (view.kind === "management") renderManagement(view.canvases);
     if (view.kind === "gallery") renderGallery(view.session, view.artifacts);
     if (view.kind === "viewer") void renderViewer(view.session, view.artifact, renderGeneration);
   },
@@ -22,24 +23,52 @@ const renderer: CanvasRenderer = {
 };
 
 const navigator = new CanvasNavigator(api, renderer, webapp?.BackButton);
-
 async function init(): Promise<void> {
+  const appWindow = window as Window & { __canvasInitToken?: number };
+  const token = (appWindow.__canvasInitToken ?? 0) + 1;
+  appWindow.__canvasInitToken = token;
   if (webapp) { webapp.ready(); webapp.expand(); }
   const initData = webapp?.initData || "";
   if (!initData) { renderer.showError("Open Canvas from Telegram to view your private artifacts."); return; }
   showScreen("loading-screen");
   try {
     await api.login(initData);
+    if (appWindow.__canvasInitToken !== token) return;
     await navigator.openDefault();
   } catch {
-    renderer.showError("Authentication failed. Please reopen Canvas from Telegram.");
+    if (appWindow.__canvasInitToken === token) renderer.showError("Authentication failed. Please reopen Canvas from Telegram.");
   }
 }
 
-function renderPicker(canvases: CanvasItem[]): void {
+function renderPicker(sessions: SessionItem[]): void {
   showScreen("session-picker");
   const list = $<HTMLUListElement>("session-list");
-  $("canvas-count").textContent = `${canvases.length} canvas${canvases.length === 1 ? "" : "es"}`;
+  $("session-count").textContent = `${sessions.length} session${sessions.length === 1 ? "" : "s"}`;
+  if (!sessions.length) { appendEmpty(list, "No sessions yet. Ask the agent to publish a canvas, then it will live here."); return; }
+  for (const session of sessions) list.appendChild(sessionRow(session));
+}
+
+function sessionRow(session: SessionItem): HTMLLIElement {
+  const item = document.createElement("li");
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "list-item";
+  button.onclick = () => void navigator.openGallery(session);
+  const title = document.createElement("span");
+  title.className = "item-title";
+  title.textContent = session.title || `Session ${session.id.slice(0, 8)}`;
+  const meta = document.createElement("span");
+  meta.className = "item-meta";
+  meta.textContent = `${session.artifact_count} canvas${session.artifact_count === 1 ? "" : "es"} · active ${formatRelativeDate(session.last_active_at)} · expires ${formatRelativeDate(session.expires_at)}`;
+  button.append(title, meta);
+  item.appendChild(button);
+  return item;
+}
+
+function renderManagement(canvases: CanvasItem[]): void {
+  showScreen("canvas-management");
+  const list = $<HTMLUListElement>("canvas-list");
+  $("management-count").textContent = `${canvases.length} canvas${canvases.length === 1 ? "" : "es"}`;
   if (!canvases.length) { appendEmpty(list, "No canvases yet. Ask the agent to publish one, then it will live here."); return; }
   for (const canvas of canvases) list.appendChild(canvasCard(canvas));
 }
@@ -72,7 +101,47 @@ function renderGallery(session: SessionItem, artifacts: ArtifactItem[]): void {
   showScreen("artifact-gallery");
   const list = $<HTMLUListElement>("artifact-list");
   if (!artifacts.length) { appendEmpty(list, "No viewable artifacts remain in this session."); return; }
-  for (const artifact of artifacts) list.appendChild(listButton(artifact.title || `Artifact ${artifact.id.slice(0, 8)}`, `Created ${formatDate(artifact.created_at)}`, () => navigator.openViewer(session, artifact)));
+  for (const artifact of artifacts) {
+    const item = document.createElement("li");
+    item.className = "gallery-row";
+    item.appendChild(listButton(artifact.title || `Artifact ${artifact.id.slice(0, 8)}`, `Created ${formatDate(artifact.created_at)}`, () => navigator.openViewer(session, artifact)));
+    item.appendChild(shareButton(artifact));
+    list.appendChild(item);
+  }
+}
+
+function shareButton(artifact: ArtifactItem): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "gallery-share secondary-button";
+  button.textContent = "Copy public link";
+  button.onclick = async () => {
+    button.disabled = true;
+    try {
+      const shares = await api.listPublicShares(artifact.id);
+      const share = shares.find((candidate) => candidate.revision_id === artifact.current_revision_id)
+        ?? await api.createPublicShare(artifact.id, 30 * 86400);
+      try {
+        if (!window.navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
+        await window.navigator.clipboard.writeText(share.url);
+        button.textContent = "Link copied ✓";
+      } catch {
+        button.textContent = "Link ready below";
+        const url = document.createElement("input");
+        url.className = "share-url gallery-share-url";
+        url.type = "url";
+        url.readOnly = true;
+        url.value = share.url;
+        url.setAttribute("aria-label", "Public canvas link, select and copy");
+        button.parentElement?.appendChild(url);
+      }
+    } catch {
+      button.textContent = "Could not create link";
+    } finally {
+      button.disabled = false;
+    }
+  };
+  return button;
 }
 
 async function renderViewer(session: SessionItem, artifact: ArtifactItem, generation: number): Promise<void> {
@@ -96,18 +165,23 @@ async function renderViewer(session: SessionItem, artifact: ArtifactItem, genera
       if (await api.extendExpiry(artifact.id) && generation === renderGeneration) $("btn-extend").textContent = "Extended ✓";
     };
     $("btn-share").onclick = async () => {
+      const shareButton = $<HTMLButtonElement>("btn-share");
+      shareButton.disabled = true;
       try {
         const duration = Number($<HTMLSelectElement>("share-duration").value);
-        const share = await api.createPublicShare(artifact.id, duration);
+        const shares = await api.listPublicShares(artifact.id);
+        const share = shares.find((candidate) => candidate.revision_id === artifact.current_revision_id)
+          ?? await api.createPublicShare(artifact.id, duration);
         try {
           if (!window.navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
           await window.navigator.clipboard.writeText(share.url);
-          $("btn-share").textContent = "Public link copied ✓";
+          shareButton.textContent = "Public link copied ✓";
         } catch {
-          $("btn-share").textContent = "Public link ready below";
+          shareButton.textContent = "Public link ready below";
         }
         if (generation === renderGeneration) await renderPublicShares(artifact, generation);
-      } catch { $("btn-share").textContent = "Could not create link"; }
+      } catch { shareButton.textContent = "Could not create link"; }
+      finally { shareButton.disabled = false; }
     };
     $("btn-delete").onclick = async () => {
       closeViewerMenu(false);
@@ -170,6 +244,7 @@ function clearTransientContent(): void {
   closeViewerMenu(false);
   $<HTMLIFrameElement>("artifact-iframe").src = "about:blank";
   $<HTMLUListElement>("session-list").replaceChildren();
+  $<HTMLUListElement>("canvas-list").replaceChildren();
   $<HTMLUListElement>("artifact-list").replaceChildren();
   $("public-share-list").replaceChildren();
   const selector = $<HTMLSelectElement>("revision-selector");
@@ -195,19 +270,16 @@ function closeViewerMenu(returnFocus = true): void {
   if (wasOpen && returnFocus) $<HTMLButtonElement>("viewer-menu-toggle").focus();
 }
 
-function listButton(title: string, meta: string, onClick: () => void): HTMLLIElement {
-  const item = document.createElement("li");
+function listButton(title: string, meta: string, onClick: () => void): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button"; button.className = "list-item"; button.onclick = onClick;
   const label = document.createElement("span"); label.className = "item-title"; label.textContent = title;
   const detail = document.createElement("span"); detail.className = "item-meta"; detail.textContent = meta;
-  button.append(label, detail); item.appendChild(button); return item;
+  button.append(label, detail);
+  return button;
 }
-function appendEmpty(list: HTMLUListElement, message: string): void { const item = document.createElement("li"); item.className = "empty-state"; item.textContent = message; list.appendChild(item); }
-function revisionOption(revision: RevisionItem): HTMLOptionElement { const option = document.createElement("option"); option.value = revision.id; option.textContent = `#${revision.ordinal} — ${formatDate(revision.created_at)}`; return option; }
-function loadDocument(artifactId: string, revisionId: string): void { $<HTMLIFrameElement>("artifact-iframe").src = api.getDocumentUrl(artifactId, revisionId); }
 function showScreen(id: string): void {
-  for (const screen of ["session-picker", "artifact-gallery", "artifact-viewer", "error-screen", "loading-screen"]) $(screen).classList.toggle("hidden", screen !== id);
+  for (const screen of ["session-picker", "canvas-management", "artifact-gallery", "artifact-viewer", "error-screen", "loading-screen"]) $(screen).classList.toggle("hidden", screen !== id);
   document.body.classList.toggle("viewer-active", id === "artifact-viewer");
 }
 function formatDate(timestamp: number): string { return new Date(timestamp * 1000).toLocaleDateString(); }
@@ -220,9 +292,14 @@ function formatRelativeDate(timestamp: number): string {
 }
 function formatBytes(bytes: number): string { return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(bytes < 10_240 ? 1 : 0)} KB`; }
 
-$("back-to-sessions").onclick = () => void navigator.openPicker();
+$("gallery-back-to-sessions").onclick = () => void navigator.openPicker();
+function loadDocument(artifactId: string, revisionId: string): void {
+  $<HTMLIFrameElement>("artifact-iframe").src = api.getDocumentUrl(artifactId, revisionId);
+}
+$("back-to-management").onclick = () => void navigator.openPicker();
+$("open-management").onclick = () => void navigator.openManagement();
 $("back-to-gallery").onclick = () => { closeViewerMenu(false); navigator.back(); };
-$("browse-all").onclick = () => { clearTransientContent(); void navigator.openPicker(); };
+$("browse-all").onclick = () => { clearTransientContent(); void navigator.openManagement(); };
 $("viewer-menu-toggle").onclick = () => $("viewer-menu").hidden ? openViewerMenu() : closeViewerMenu();
 document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !$("viewer-menu").hidden) { event.preventDefault(); closeViewerMenu(); } });
 document.addEventListener("pointerdown", (event) => {
@@ -230,4 +307,5 @@ document.addEventListener("pointerdown", (event) => {
   if (!$("viewer-menu").hidden && !$("viewer-menu").contains(target) && !$("viewer-menu-toggle").contains(target)) closeViewerMenu();
 });
 $("btn-retry").onclick = () => void init();
+init();
 document.addEventListener("DOMContentLoaded", () => void init());

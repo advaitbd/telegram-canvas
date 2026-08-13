@@ -34,11 +34,25 @@ export async function handleCreateShare(request: Request, db: D1Database, artifa
 	if (!ALLOWED_TTLS.has(ttl)) return jsonError(400, "Invalid share duration");
 	const revision = (await Artifacts.listRevisions(db, artifactId)).find((item) => item.id === artifact.current_revision_id && item.status === "ready");
 	if (!revision) return jsonError(404, "Not found");
+	const existing = await db.prepare(
+		`SELECT token, revision_id, expires_at FROM public_shares
+		 WHERE artifact_id = ? AND revision_id = ? AND expires_at > unixepoch()
+		 ORDER BY expires_at ASC LIMIT 1`,
+	).bind(artifactId, revision.id).first<{ token: string; revision_id: string; expires_at: number }>();
+	const origin = new URL(request.url).origin;
+	if (existing) {
+		return jsonOk({
+			token: existing.token,
+			revision_id: existing.revision_id,
+			url: `${origin}/s/${existing.token}`,
+			expires_at: existing.expires_at,
+		});
+	}
 	const shareToken = token();
 	const expiresAt = Math.floor(Date.now() / 1000) + ttl;
 	await db.prepare("INSERT INTO public_shares (token, artifact_id, revision_id, expires_at) VALUES (?, ?, ?, ?)")
 		.bind(shareToken, artifactId, revision.id, expiresAt).run();
-	return jsonOk({ token: shareToken, url: `${new URL(request.url).origin}/s/${shareToken}`, expires_at: expiresAt }, 201);
+	return jsonOk({ token: shareToken, revision_id: revision.id, url: `${origin}/s/${shareToken}`, expires_at: expiresAt }, 201);
 }
 
 export async function handleListShares(request: Request, db: D1Database, artifactId: string): Promise<Response> {
@@ -46,9 +60,9 @@ export async function handleListShares(request: Request, db: D1Database, artifac
 	if (!ownerHash) return jsonError(401, "Unauthorized");
 	const artifact = await Artifacts.getArtifact(db, artifactId, ownerHash);
 	if (!artifact) return jsonError(404, "Not found");
-	const shares = await db.prepare(`SELECT token, expires_at FROM public_shares
+	const shares = await db.prepare(`SELECT token, revision_id, expires_at FROM public_shares
 		WHERE artifact_id = ? AND expires_at > unixepoch() ORDER BY expires_at ASC`)
-		.bind(artifactId).all<{ token: string; expires_at: number }>();
+		.bind(artifactId).all<{ token: string; revision_id: string; expires_at: number }>();
 	const origin = new URL(request.url).origin;
 	return jsonOk({ shares: (shares.results ?? []).map((share) => ({ ...share, url: `${origin}/s/${share.token}` })) });
 }

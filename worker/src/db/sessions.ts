@@ -14,6 +14,7 @@ export interface SessionRecord {
 	owner_hash: string;
 	session_hash: string;
 	title: string;
+	chat_name: string;
 	last_active_at: number;
 	expires_at: number;
 	created_at: number;
@@ -27,19 +28,47 @@ export async function createSession(
 	owner_hash: string,
 	session_hash: string,
 	title: string,
+	chat_name = "",
 ): Promise<string> {
 	const now = Math.floor(Date.now() / 1000);
 	const expires = now + SESSION_EXPIRY_DAYS * 86400;
 
 	await db
 		.prepare(
-			`INSERT INTO session_records (id, owner_hash, session_hash, title, last_active_at, expires_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+			`INSERT INTO session_records (id, owner_hash, session_hash, title, chat_name, last_active_at, expires_at, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		)
-		.bind(id, owner_hash, session_hash, title.slice(0, 160), now, expires, now, now)
+		.bind(id, owner_hash, session_hash, title.slice(0, 160), chat_name.slice(0, 160), now, expires, now, now)
 		.run();
 
 	return id;
+}
+
+/** Refresh owner-scoped session metadata from a publish request. */
+export async function updateSessionDetails(
+	db: D1Database,
+	session_id: string,
+	owner_hash: string,
+	title?: string,
+	chat_name?: string,
+): Promise<boolean> {
+	const now = Math.floor(Date.now() / 1000);
+	const result = await db
+		.prepare(
+			`UPDATE session_records
+       SET title = COALESCE(?, title), chat_name = COALESCE(?, chat_name), updated_at = ?
+       WHERE id = ? AND owner_hash = ?`,
+		)
+		.bind(
+			title?.trim() ? title.slice(0, 160) : null,
+			chat_name?.trim() ? chat_name.slice(0, 160) : null,
+			now,
+			session_id,
+			owner_hash,
+		)
+		.run();
+
+	return result.meta.changes > 0;
 }
 
 /** Look up a session by (owner_hash, session_hash). Returns null on miss. */
@@ -50,7 +79,7 @@ export async function getSessionByHashes(
 ): Promise<SessionRecord | null> {
 	const row = await db
 		.prepare(
-			`SELECT id, owner_hash, session_hash, title, last_active_at, expires_at, created_at, updated_at
+			`SELECT id, owner_hash, session_hash, title, chat_name, last_active_at, expires_at, created_at, updated_at
        FROM session_records
        WHERE owner_hash = ? AND session_hash = ?`,
 		)
@@ -68,7 +97,7 @@ export async function listSessionsByOwner(
 	const now = Math.floor(Date.now() / 1000);
 	const rows = await db
 		.prepare(
-			`SELECT id, owner_hash, session_hash, title, last_active_at, expires_at, created_at, updated_at
+			`SELECT id, owner_hash, session_hash, title, chat_name, last_active_at, expires_at, created_at, updated_at
        FROM session_records
        WHERE owner_hash = ? AND expires_at > ?
        ORDER BY last_active_at DESC, id DESC`,
@@ -107,7 +136,7 @@ export async function selectExpiredSessions(
 	const now = Math.floor(Date.now() / 1000);
 	const rows = await db
 		.prepare(
-			`SELECT id, owner_hash, session_hash, title, last_active_at, expires_at, created_at, updated_at
+			`SELECT id, owner_hash, session_hash, title, chat_name, last_active_at, expires_at, created_at, updated_at
        FROM session_records
        WHERE expires_at <= ?`,
 		)

@@ -40,13 +40,15 @@ export interface BootstrapCanvas {
 export interface CanvasApiLike {
   bootstrap(): Promise<BootstrapCanvas | null>;
   getCachedBootstrap(): BootstrapCanvas | null;
+  listSessions(): Promise<Session[]>;
   listCanvases(): Promise<Canvas[]>;
   listArtifacts(sessionId: string): Promise<Artifact[]>;
   listRevisions(artifactId: string): Promise<Revision[]>;
 }
 
 export type NavigationView =
-  | { kind: "picker"; canvases: Canvas[] }
+  | { kind: "picker"; sessions: Session[] }
+  | { kind: "management"; canvases: Canvas[] }
   | { kind: "gallery"; session: Session; artifacts: Artifact[] }
   | { kind: "viewer"; session: Session; artifact: Artifact };
 
@@ -88,38 +90,31 @@ export class CanvasNavigator {
   ) {}
 
   async openDefault(): Promise<void> {
-    const generation = this.nextGeneration();
-    const cached = this.api.getCachedBootstrap();
-    if (cached) this.setBootstrapView(cached);
-    try {
-      const fresh = await this.api.bootstrap();
-      if (!this.isCurrent(generation)) return;
-      if (fresh) {
-        this.setBootstrapView(fresh);
-      } else {
-        const canvases = newestFirst(await this.api.listCanvases(), "updated_at");
-        if (!this.isCurrent(generation)) return;
-        this.setView({ kind: "picker", canvases });
-      }
-    } catch (error) {
-      if (!cached && this.isCurrent(generation)) this.renderer.showError(errorMessage(error));
-    }
-  }
-
-  private setBootstrapView(canvas: BootstrapCanvas): void {
-    this.setView({ kind: "viewer", session: canvas.session, artifact: canvas.artifact });
+    await this.openPicker();
   }
 
   async openPicker(): Promise<void> {
     const generation = this.nextGeneration();
     try {
-      const canvases = newestFirst(await this.api.listCanvases(), "updated_at");
+      const sessions = newestFirst(await this.api.listSessions(), "last_active_at");
       if (!this.isCurrent(generation)) return;
-      this.setView({ kind: "picker", canvases });
+      this.setView({ kind: "picker", sessions });
     } catch (error) {
       if (this.isCurrent(generation)) this.renderer.showError(errorMessage(error));
     }
   }
+
+  async openManagement(): Promise<void> {
+    const generation = this.nextGeneration();
+    try {
+      const canvases = newestFirst(await this.api.listCanvases(), "updated_at");
+      if (!this.isCurrent(generation)) return;
+      this.setView({ kind: "management", canvases });
+    } catch (error) {
+      if (this.isCurrent(generation)) this.renderer.showError(errorMessage(error));
+    }
+  }
+
 
   async openGallery(session: Session): Promise<void> {
     const generation = this.nextGeneration();
@@ -132,7 +127,6 @@ export class CanvasNavigator {
       if (this.isCurrent(generation)) this.renderer.showError(errorMessage(error));
     }
   }
-
   openViewer(session: Session, artifact: Artifact): void {
     this.nextGeneration();
     this.setView({ kind: "viewer", session, artifact });
@@ -146,7 +140,7 @@ export class CanvasNavigator {
       } else {
         void this.openGallery(this.current.session);
       }
-    } else if (this.current?.kind === "gallery") {
+    } else if (this.current?.kind === "gallery" || this.current?.kind === "management") {
       void this.openPicker();
     }
   }

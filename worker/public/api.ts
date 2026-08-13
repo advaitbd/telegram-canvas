@@ -54,6 +54,7 @@ export interface PublicShare {
 	token: string;
 	url: string;
 	expires_at: number;
+	revision_id: string;
 }
 
 export interface BootstrapCanvas {

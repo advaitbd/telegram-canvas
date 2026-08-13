@@ -40,6 +40,10 @@ h2 { font-size: clamp(1.6rem, 7vw, 2.15rem); font-weight: 650; letter-spacing: -
 .canvas-delete:hover { color: var(--danger); }
 .canvas-delete:active { transform: translateY(1px); }
 .list-item { width: 100%; min-height: 70px; display: grid; gap: 5px; padding: 15px 0; text-align: left; color: var(--text); background: transparent; border: 0; border-bottom: 1px solid var(--line); transition: opacity 160ms ease; }
+.gallery-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
+.gallery-row .list-item { border-bottom: 0; }
+.gallery-share { min-height: 44px; padding-inline: 8px; white-space: nowrap; }
+.gallery-share-url { grid-column: 1 / -1; margin: 0 0 10px; }
 .list-item:hover { opacity: .72; }
 .list-item:active { opacity: .5; }
 .item-title { font-size: 1rem; font-weight: 620; line-height: 1.25; text-wrap: pretty; }

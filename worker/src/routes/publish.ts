@@ -25,6 +25,7 @@ interface PublishBody {
 	telegram_creator_id: string;
 	hermes_session_id: string;
 	session_title?: string;
+	chat_name?: string;
 	artifact_id?: string;
 	title: string;
 	html: string;
@@ -56,7 +57,6 @@ export async function handlePublish(
 		} catch {
 			return jsonError(400, "Invalid JSON body");
 		}
-
 		// 3. Validate required fields
 		if (!body.telegram_creator_id || !body.hermes_session_id) {
 			return jsonError(400, "Missing telegram_creator_id or hermes_session_id");
@@ -66,6 +66,12 @@ export async function handlePublish(
 		}
 		if (!body.html || typeof body.html !== "string") {
 			return jsonError(400, "Missing or invalid html");
+		}
+		if (body.session_title !== undefined && typeof body.session_title !== "string") {
+			return jsonError(400, "Invalid session_title");
+		}
+		if (body.chat_name !== undefined && typeof body.chat_name !== "string") {
+			return jsonError(400, "Invalid chat_name");
 		}
 		if (body.title.length > 160) {
 			return jsonError(400, "Title exceeds 160 characters");
@@ -94,6 +100,8 @@ export async function handlePublish(
 		}
 
 		// 6. Find or create session
+		const sessionTitle = body.session_title?.trim();
+		const chatName = body.chat_name?.trim();
 		let session = await Sessions.getSessionByHashes(env.CANVAS_DB, ownerHash, sessionHash);
 		if (!session) {
 			const sessionId = crypto.randomUUID();
@@ -102,12 +110,23 @@ export async function handlePublish(
 				sessionId,
 				ownerHash,
 				sessionHash,
-				(body.session_title || body.title).slice(0, 160),
+				(sessionTitle || chatName || body.title).slice(0, 160),
+				chatName,
 			);
 			session = await Sessions.getSessionByHashes(env.CANVAS_DB, ownerHash, sessionHash);
 			if (!session) {
 				return jsonError(500, "Failed to create session");
 			}
+		} else {
+			await Sessions.updateSessionDetails(
+				env.CANVAS_DB,
+				session.id,
+				ownerHash,
+				body.session_title?.trim() ? body.session_title : undefined,
+				body.chat_name?.trim() ? body.chat_name : undefined,
+			);
+			session = await Sessions.getSessionByHashes(env.CANVAS_DB, ownerHash, sessionHash);
+			if (!session) return jsonError(500, "Failed to refresh session");
 		}
 
 		// 7. Find or create artifact

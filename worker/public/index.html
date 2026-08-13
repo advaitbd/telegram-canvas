@@ -15,11 +15,17 @@
     </header>
     <div id="loading-screen" class="screen loading-state" role="status">Opening canvas…</div>
     <section id="session-picker" class="screen hidden" aria-labelledby="picker-title">
-      <div class="title-row"><h2 id="picker-title">Your canvases</h2><p id="canvas-count" class="canvas-count"></p></div>
+      <div class="title-row"><h2 id="picker-title">Your sessions</h2><p id="session-count" class="canvas-count"></p></div>
       <ul id="session-list" class="list" aria-label="Canvas sessions"></ul>
+      <button id="open-management" class="secondary-button" type="button">Browse all canvases</button>
+    </section>
+    <section id="canvas-management" class="screen hidden" aria-labelledby="management-title">
+      <div class="action-row"><button id="back-to-management" class="text-button" type="button">← All canvases</button></div>
+      <div class="title-row"><h2 id="management-title">All canvases</h2><p id="management-count" class="canvas-count"></p></div>
+      <ul id="canvas-list" class="list" aria-label="All canvases"></ul>
     </section>
     <section id="artifact-gallery" class="screen hidden" aria-labelledby="gallery-title">
-      <div class="action-row"><button id="back-to-sessions" class="text-button" type="button">← All canvases</button></div>
+      <div class="action-row"><button id="gallery-back-to-sessions" class="text-button" type="button">← Sessions</button></div>
       <h2 id="gallery-title">Artifacts</h2>
       <ul id="artifact-list" class="list" aria-label="Artifacts in this session"></ul>
     </section>

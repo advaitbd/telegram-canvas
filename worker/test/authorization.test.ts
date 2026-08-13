@@ -40,7 +40,7 @@ describe("Viewer authorization", () => {
 		// Schema
 		await db.prepare(`CREATE TABLE IF NOT EXISTS session_records (
 			id TEXT PRIMARY KEY, owner_hash TEXT NOT NULL, session_hash TEXT NOT NULL,
-			title TEXT NOT NULL DEFAULT '',
+			title TEXT NOT NULL DEFAULT '', chat_name TEXT NOT NULL DEFAULT '',
 			last_active_at INTEGER NOT NULL DEFAULT (unixepoch()),
 			expires_at INTEGER NOT NULL DEFAULT (unixepoch() + 2592000),
 			created_at INTEGER NOT NULL DEFAULT (unixepoch()),

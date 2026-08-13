@@ -18,6 +18,7 @@ import { env } from "cloudflare:test";
 import type { D1Database, R2Bucket } from "@cloudflare/workers-types";
 import { handlePublish } from "../src/routes/publish";
 import * as Sessions from "../src/db/sessions";
+import { deriveOwnerHash, deriveSessionHash } from "../src/auth/identity";
 import * as Artifacts from "../src/db/artifacts";
 
 declare module "cloudflare:test" {
@@ -95,7 +96,7 @@ describe("Publish endpoint", () => {
 
 		await db.prepare(`CREATE TABLE IF NOT EXISTS session_records (
 			id TEXT PRIMARY KEY, owner_hash TEXT NOT NULL, session_hash TEXT NOT NULL,
-			title TEXT NOT NULL DEFAULT '',
+			title TEXT NOT NULL DEFAULT '', chat_name TEXT NOT NULL DEFAULT '',
 			last_active_at INTEGER NOT NULL DEFAULT (unixepoch()),
 			expires_at INTEGER NOT NULL DEFAULT (unixepoch() + 2592000),
 			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
@@ -158,10 +159,12 @@ describe("Publish endpoint", () => {
 		expect(res1.status).toBe(200);
 		const body1 = await res1.json() as Record<string, string>;
 
-		// Second publish with artifact_id
+		// Second publish with artifact_id and refreshed session metadata
 		const req2 = await buildSignedRequest({
 			telegram_creator_id: "user_rev2",
 			hermes_session_id: "sess_rev2",
+			session_title: "Renamed Session",
+			chat_name: "Renamed Chat",
 			artifact_id: body1.artifact_id,
 			title: "V2",
 			html: "<p>v2</p>",
@@ -173,6 +176,11 @@ describe("Publish endpoint", () => {
 		expect(body2.action).toBe("updated");
 
 		// Verify both revisions exist
+		const ownerHash = await deriveOwnerHash("user_rev2", IDENTITY_KEY);
+		const sessionHash = await deriveSessionHash("sess_rev2", IDENTITY_KEY);
+		const session = await Sessions.getSessionByHashes(db, ownerHash, sessionHash);
+		expect(session?.title).toBe("Renamed Session");
+		expect(session?.chat_name).toBe("Renamed Chat");
 		const revisions = await Artifacts.listRevisions(db, body1.artifact_id);
 		expect(revisions).toHaveLength(2);
 	});

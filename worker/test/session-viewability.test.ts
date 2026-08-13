@@ -20,7 +20,8 @@ describe("viewable Canvas listings", () => {
     db = env.CANVAS_DB;
     await db.prepare(`CREATE TABLE IF NOT EXISTS session_records (
       id TEXT PRIMARY KEY, owner_hash TEXT NOT NULL, session_hash TEXT NOT NULL,
-      title TEXT NOT NULL DEFAULT '', last_active_at INTEGER NOT NULL,
+      title TEXT NOT NULL DEFAULT '', chat_name TEXT NOT NULL DEFAULT '',
+      last_active_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
     )`).run();
     await db.prepare(`CREATE TABLE IF NOT EXISTS artifacts (
@@ -39,8 +40,8 @@ describe("viewable Canvas listings", () => {
     const owner = `owner_viewable_${crypto.randomUUID()}`;
     const now = Math.floor(Date.now() / 1000);
     const insertSession = (id: string, lastActive: number) => db.prepare(
-      "INSERT INTO session_records VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-    ).bind(id, owner, `hash_${id}`, id, lastActive, now + 3600, now, now).run();
+      "INSERT INTO session_records VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(id, owner, `hash_${id}`, id, "", lastActive, now + 3600, now, now).run();
     const insertArtifact = (id: string, sessionId: string, revisionId: string | null, createdAt: number) => db.prepare(
       "INSERT INTO artifacts VALUES (?, ?, ?, ?, NULL, NULL, ?, ?)"
     ).bind(id, sessionId, id, revisionId, createdAt, createdAt).run();

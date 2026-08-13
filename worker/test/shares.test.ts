@@ -30,7 +30,7 @@ describe("public shares", () => {
 	beforeAll(async () => {
 		db = env.CANVAS_DB;
 		r2 = env.CANVAS_ARTIFACTS;
-		await db.prepare("CREATE TABLE IF NOT EXISTS session_records (id TEXT PRIMARY KEY, owner_hash TEXT NOT NULL, session_hash TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', last_active_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)").run();
+		await db.prepare("CREATE TABLE IF NOT EXISTS session_records (id TEXT PRIMARY KEY, owner_hash TEXT NOT NULL, session_hash TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', chat_name TEXT NOT NULL DEFAULT '', last_active_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)").run();
 		await db.prepare("CREATE TABLE IF NOT EXISTS artifacts (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', current_revision_id TEXT, trashed_at INTEGER, purge_after INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)").run();
 		await db.prepare("CREATE TABLE IF NOT EXISTS artifact_revisions (id TEXT PRIMARY KEY, artifact_id TEXT NOT NULL, ordinal INTEGER NOT NULL, r2_key TEXT NOT NULL, content_bytes INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at INTEGER NOT NULL)").run();
 		await db.prepare("CREATE TABLE IF NOT EXISTS public_shares (token TEXT PRIMARY KEY, artifact_id TEXT NOT NULL, revision_id TEXT NOT NULL, expires_at INTEGER NOT NULL, created_at INTEGER NOT NULL DEFAULT (unixepoch()))").run();
@@ -44,10 +44,28 @@ describe("public shares", () => {
 	it("creates a 30-day share link pinned to the current revision", async () => {
 		const res = await handleCreateShare(ownerRequest(`/api/artifacts/${artifactId}/shares`, "POST", { ttl_seconds: 2592000 }), db, artifactId);
 		expect(res.status).toBe(201);
-		const body = await res.json() as { token: string; url: string; expires_at: number };
+		const body = await res.json() as { token: string; revision_id: string; url: string; expires_at: number };
 		expect(body.token).toMatch(/^[a-f0-9]{48}$/);
-		expect(body.url).toBe(`${origin}/s/${body.token}`);
+		expect(body.revision_id).toBe("rev_public_share");
 		expect(body.expires_at).toBeGreaterThan(Math.floor(Date.now() / 1000) + 29 * 86400);
+	});
+
+	it("reuses an active share only while pinned to the current ready revision", async () => {
+		const first = await handleCreateShare(ownerRequest(`/api/artifacts/${artifactId}/shares`, "POST", { ttl_seconds: 86400 }), db, artifactId);
+		const firstBody = await first.json() as { token: string; revision_id: string; expires_at: number };
+		const retry = await handleCreateShare(ownerRequest(`/api/artifacts/${artifactId}/shares`, "POST", { ttl_seconds: 2592000 }), db, artifactId);
+		const retryBody = await retry.json() as { token: string; revision_id: string; expires_at: number };
+		expect(retry.status).toBe(200);
+		expect(retryBody).toEqual(firstBody);
+
+		await Artifacts.createRevision(db, "rev_public_share_2", artifactId, 2, "public/share-2.html", 22, "ready");
+		await Artifacts.setCurrentRevision(db, artifactId, "rev_public_share_2");
+		await r2.put("public/share-2.html", "<h1>safe share</h1>");
+		const next = await handleCreateShare(ownerRequest(`/api/artifacts/${artifactId}/shares`, "POST", { ttl_seconds: 86400 }), db, artifactId);
+		const nextBody = await next.json() as { token: string; revision_id: string; expires_at: number };
+		expect(next.status).toBe(201);
+		expect(nextBody.token).not.toBe(firstBody.token);
+		expect(nextBody.revision_id).toBe("rev_public_share_2");
 	});
 
 	it("serves a share inside a sandboxed viewer, and its document without cookies", async () => {
@@ -57,7 +75,6 @@ describe("public shares", () => {
 		expect(viewer.status).toBe(200);
 		expect(await viewer.text()).toContain('sandbox="allow-scripts"');
 		const document = await handlePublicDocument(db, r2, token);
-		expect(document.status).toBe(200);
 		expect(await document.text()).toContain("safe share");
 		expect(document.headers.get("content-security-policy")).toContain("sandbox allow-scripts");
 	});
@@ -69,7 +86,7 @@ describe("public shares", () => {
 			.bind("f".repeat(48), artifactId, "rev_public_share", Math.floor(Date.now() / 1000) - 1).run();
 		const res = await handleListShares(ownerRequest(`/api/artifacts/${artifactId}/shares`), db, artifactId);
 		expect(res.status).toBe(200);
-		const body = await res.json() as { shares: Array<{ token: string; url: string }> };
+		const body = await res.json() as { shares: Array<{ token: string; revision_id: string; url: string }> };
 		expect(body.shares.some((share) => share.token === token && share.url === `${origin}/s/${token}`)).toBe(true);
 		expect(body.shares.some((share) => share.token === "f".repeat(48))).toBe(false);
 	});

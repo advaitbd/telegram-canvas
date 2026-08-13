@@ -41,7 +41,7 @@ describe("artifact lifecycle", () => {
 
 		await db.prepare(`CREATE TABLE IF NOT EXISTS session_records (
 			id TEXT PRIMARY KEY, owner_hash TEXT NOT NULL, session_hash TEXT NOT NULL,
-			title TEXT NOT NULL DEFAULT '',
+			title TEXT NOT NULL DEFAULT '', chat_name TEXT NOT NULL DEFAULT '',
 			last_active_at INTEGER NOT NULL DEFAULT (unixepoch()),
 			expires_at INTEGER NOT NULL DEFAULT (unixepoch() + 2592000),
 			created_at INTEGER NOT NULL DEFAULT (unixepoch()),
@@ -82,6 +82,19 @@ describe("artifact lifecycle", () => {
 		expect(stored!.session_hash).toBe("sess_discussion_001");
 		expect(stored!.title).toBe("Architecture Discussion");
 		expect(stored!.expires_at).toBeGreaterThan(stored!.last_active_at);
+	});
+
+	it("stores chat_name and refreshes only non-empty published metadata", async () => {
+		const sessionId = "ses_" + crypto.randomUUID();
+		await Sessions.createSession(db, sessionId, "owner_metadata", "hash_metadata", "Initial", "Original Chat");
+		await Sessions.updateSessionDetails(db, sessionId, "owner_metadata", "Updated", "");
+		let stored = await Sessions.getSessionByHashes(db, "owner_metadata", "hash_metadata");
+		expect(stored?.title).toBe("Updated");
+		expect(stored?.chat_name).toBe("Original Chat");
+		await Sessions.updateSessionDetails(db, sessionId, "owner_metadata", undefined, "Renamed Chat");
+		stored = await Sessions.getSessionByHashes(db, "owner_metadata", "hash_metadata");
+		expect(stored?.title).toBe("Updated");
+		expect(stored?.chat_name).toBe("Renamed Chat");
 	});
 
 	it("rejects duplicate (owner_hash, session_hash)", async () => {

@@ -85,7 +85,7 @@ describe("CanvasNavigator", () => {
     await navigator.openDefault();
     expect(renderer.showError).toHaveBeenCalledWith(message.startsWith("401")
       ? "Your Canvas session has expired. Please retry from Telegram."
-      : `Could not load Canvas. [Error: ${message}]`);
+      : "Could not load Canvas. Please try again.");
   });
 
 });

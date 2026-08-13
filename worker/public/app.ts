@@ -278,6 +278,8 @@ function listButton(title: string, meta: string, onClick: () => void): HTMLButto
   button.append(label, detail);
   return button;
 }
+function appendEmpty(list: HTMLUListElement, message: string): void { const item = document.createElement("li"); item.className = "empty-state"; item.textContent = message; list.appendChild(item); }
+function revisionOption(revision: RevisionItem): HTMLOptionElement { const option = document.createElement("option"); option.value = revision.id; option.textContent = `#${revision.ordinal} — ${formatDate(revision.created_at)}`; return option; }
 function showScreen(id: string): void {
   for (const screen of ["session-picker", "canvas-management", "artifact-gallery", "artifact-viewer", "error-screen", "loading-screen"]) $(screen).classList.toggle("hidden", screen !== id);
   document.body.classList.toggle("viewer-active", id === "artifact-viewer");

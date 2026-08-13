@@ -307,5 +307,8 @@ document.addEventListener("pointerdown", (event) => {
   if (!$("viewer-menu").hidden && !$("viewer-menu").contains(target) && !$("viewer-menu-toggle").contains(target)) closeViewerMenu();
 });
 $("btn-retry").onclick = () => void init();
-init();
-document.addEventListener("DOMContentLoaded", () => void init());
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", () => void init());
+} else {
+  void init();
+}

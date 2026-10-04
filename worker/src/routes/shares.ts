@@ -28,31 +28,34 @@ export async function handleCreateShare(request: Request, db: D1Database, artifa
 	const ownerHash = getOwnerFromCookie(request);
 	if (!ownerHash) return jsonError(401, "Unauthorized");
 	const artifact = await Artifacts.getArtifact(db, artifactId, ownerHash);
-	if (!artifact || artifact.trashed_at || !artifact.current_revision_id) return jsonError(404, "Not found");
+	if (!artifact || artifact.trashed_at) return jsonError(404, "Not found");
 	const body = await request.json().catch(() => null) as { ttl_seconds?: unknown } | null;
 	const ttl = typeof body?.ttl_seconds === "number" ? body.ttl_seconds : 30 * 86400;
 	if (!ALLOWED_TTLS.has(ttl)) return jsonError(400, "Invalid share duration");
-	const revision = (await Artifacts.listRevisions(db, artifactId)).find((item) => item.id === artifact.current_revision_id && item.status === "ready");
+	// The newest ready revision is what the link serves today.
+	const revision = (await Artifacts.listRevisions(db, artifactId)).find((item) => item.status === "ready");
 	if (!revision) return jsonError(404, "Not found");
-	const existing = await db.prepare(
-		`SELECT token, revision_id, expires_at FROM public_shares
-		 WHERE artifact_id = ? AND revision_id = ? AND expires_at > unixepoch()
-		 ORDER BY expires_at ASC LIMIT 1`,
-	).bind(artifactId, revision.id).first<{ token: string; revision_id: string; expires_at: number }>();
 	const origin = new URL(request.url).origin;
-	if (existing) {
-		return jsonOk({
-			token: existing.token,
-			revision_id: existing.revision_id,
-			url: `${origin}/s/${existing.token}`,
-			expires_at: existing.expires_at,
-		});
+	// A public link is artifact-scoped: one active link per artifact, always
+	// serving the artifact's latest ready revision. Reuse it if present.
+	const active = await selectActiveShare(db, artifactId);
+	if (active) {
+		return jsonOk({ token: active.token, revision_id: revision.id, url: `${origin}/s/${active.token}`, expires_at: active.expires_at });
 	}
+	// Race-safe insert: INSERT ... SELECT runs as one atomic SQLite statement,
+	// so concurrent creates cannot both insert. The loser re-reads the winner.
 	const shareToken = token();
 	const expiresAt = Math.floor(Date.now() / 1000) + ttl;
-	await db.prepare("INSERT INTO public_shares (token, artifact_id, revision_id, expires_at) VALUES (?, ?, ?, ?)")
-		.bind(shareToken, artifactId, revision.id, expiresAt).run();
-	return jsonOk({ token: shareToken, revision_id: revision.id, url: `${origin}/s/${shareToken}`, expires_at: expiresAt }, 201);
+	await db.prepare(
+		`INSERT INTO public_shares (token, artifact_id, revision_id, expires_at)
+		 SELECT ?, ?, ?, ? WHERE NOT EXISTS (
+			SELECT 1 FROM public_shares WHERE artifact_id = ? AND expires_at > unixepoch())`,
+	).bind(shareToken, artifactId, revision.id, expiresAt, artifactId).run();
+	const winner = await selectActiveShare(db, artifactId);
+	// No active link after the atomic insert means it was revoked concurrently;
+	// never hand back a token that is not actually in the table.
+	if (!winner) return jsonError(409, "Public link changed concurrently; retry");
+	return jsonOk({ token: winner.token, revision_id: revision.id, url: `${origin}/s/${winner.token}`, expires_at: winner.expires_at }, winner.token === shareToken ? 201 : 200);
 }
 
 export async function handleListShares(request: Request, db: D1Database, artifactId: string): Promise<Response> {
@@ -60,11 +63,18 @@ export async function handleListShares(request: Request, db: D1Database, artifac
 	if (!ownerHash) return jsonError(401, "Unauthorized");
 	const artifact = await Artifacts.getArtifact(db, artifactId, ownerHash);
 	if (!artifact) return jsonError(404, "Not found");
-	const shares = await db.prepare(`SELECT token, revision_id, expires_at FROM public_shares
+	// revision_id reported is the artifact's live (newest ready) revision.
+	const shares = await db.prepare(`SELECT token, expires_at FROM public_shares
 		WHERE artifact_id = ? AND expires_at > unixepoch() ORDER BY expires_at ASC`)
-		.bind(artifactId).all<{ token: string; revision_id: string; expires_at: number }>();
+		.bind(artifactId).all<{ token: string; expires_at: number }>();
+	const rows = shares.results ?? [];
+	const newestReady = rows.length
+		? (await db.prepare(
+			`SELECT id FROM artifact_revisions WHERE artifact_id = ? AND status = 'ready' ORDER BY ordinal DESC LIMIT 1`,
+		).bind(artifactId).first<{ id: string }>())?.id ?? null
+		: null;
 	const origin = new URL(request.url).origin;
-	return jsonOk({ shares: (shares.results ?? []).map((share) => ({ ...share, url: `${origin}/s/${share.token}` })) });
+	return jsonOk({ shares: newestReady ? rows.map((share) => ({ ...share, revision_id: newestReady, url: `${origin}/s/${share.token}` })) : [] });
 }
 
 export async function handleRevokeShare(request: Request, db: D1Database, artifactId: string, shareToken: string): Promise<Response> {
@@ -78,10 +88,24 @@ export async function handleRevokeShare(request: Request, db: D1Database, artifa
 	return result.meta.changes ? jsonOk({ revoked: true }) : jsonError(404, "Not found");
 }
 
+/** The single active (non-expired) link for an artifact, if any. */
+async function selectActiveShare(db: D1Database, artifactId: string) {
+	return db.prepare(`SELECT token, expires_at FROM public_shares
+		WHERE artifact_id = ? AND expires_at > unixepoch() ORDER BY expires_at ASC LIMIT 1`)
+		.bind(artifactId).first<{ token: string; expires_at: number }>();
+}
+
+// A public link always renders the artifact's live revision: the newest ready
+// revision by ordinal, regardless of a stale current_revision_id pointer.
+// Trashed or purged artifacts are filtered out (cascade removes purged links).
 async function getPublicShare(db: D1Database, shareToken: string) {
 	return db.prepare(`SELECT ps.expires_at, a.title, a.trashed_at, r.r2_key, r.status
-		FROM public_shares ps JOIN artifacts a ON a.id = ps.artifact_id JOIN artifact_revisions r ON r.id = ps.revision_id
-		WHERE ps.token = ? AND ps.expires_at > unixepoch()`).bind(shareToken).first<{ expires_at: number; title: string; trashed_at: number | null; r2_key: string; status: string }>();
+		FROM public_shares ps
+		JOIN artifacts a ON a.id = ps.artifact_id
+		JOIN artifact_revisions r ON r.artifact_id = a.id AND r.status = 'ready'
+		WHERE ps.token = ? AND ps.expires_at > unixepoch()
+		ORDER BY r.ordinal DESC
+		LIMIT 1`).bind(shareToken).first<{ expires_at: number; title: string; trashed_at: number | null; r2_key: string; status: string }>();
 }
 
 function missingShare(): Response {

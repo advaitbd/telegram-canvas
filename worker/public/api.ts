@@ -176,7 +176,7 @@ export class CanvasApi {
 		return res.ok;
 	}
 
-	/** Create a public link to the current immutable revision. */
+	/** Create or reuse a live public link to the artifact's newest ready revision. */
 	async createPublicShare(artifactId: string, ttlSeconds: number): Promise<PublicShare> {
 		const res = await fetch(`${API_BASE}/api/artifacts/${artifactId}/shares`, {
 			method: "POST",

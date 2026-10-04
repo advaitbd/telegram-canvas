@@ -103,6 +103,26 @@ cd worker
 npx wrangler deploy
 ```
 
+## Public link lifecycle
+
+Public links are live artifact links. Publishing a revision with the same `artifact_id`
+updates the content served at every active link for that artifact. Public requests
+resolve the newest ready revision and do not serve pending or failed revisions.
+The private revision selector still opens explicit historical revisions.
+
+Create public link reuses an active token, including after revisions change. Concurrent
+requests cannot create duplicate active links. Reuse preserves the existing expiry;
+selecting a longer duration does not silently extend an existing link. Revoke or expiry
+invalidates the token. A later create returns a new token, never reactivates the old one.
+Legacy multiple links remain valid and can be individually revoked. No bulk token cleanup
+is needed for this change.
+
+Migration `0006_public_shares_artifact_scoped.sql` preserves all share rows and removes
+only the revision foreign key. This prevents revision pruning from deleting live links.
+Apply it before deploying the new Worker, as the release workflow already does. The
+migration also works with the previous Worker for rollback. Tokens deleted by past
+revision-pruning cascades cannot be recovered by this migration.
+
 ## Rollback
 
 ```bash

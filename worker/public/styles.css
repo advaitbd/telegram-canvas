@@ -45,7 +45,7 @@ h2 { font-size: clamp(1.6rem, 7vw, 2.15rem); font-weight: 650; letter-spacing: -
 .gallery-share { min-height: 44px; padding-inline: 8px; white-space: nowrap; }
 .gallery-share-url { grid-column: 1 / -1; margin: 0 0 10px; }
 .list-item:hover { opacity: .72; }
-.list-item:active { opacity: .5; }
+.list-item:active, .canvas-open:active { opacity: .5; background: color-mix(in srgb, var(--text) 6%, transparent); }
 .item-title { font-size: 1rem; font-weight: 620; line-height: 1.25; text-wrap: pretty; }
 .item-meta { color: var(--muted); font-size: .76rem; font-variant-numeric: tabular-nums; }
 .empty-state { padding: 44px 8px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: .9rem; line-height: 1.55; text-align: center; text-wrap: pretty; }
@@ -54,6 +54,8 @@ h2 { font-size: clamp(1.6rem, 7vw, 2.15rem); font-weight: 650; letter-spacing: -
 .secondary-button, .danger-button { padding: 0 10px; border: 0; background: transparent; font-size: .86rem; font-weight: 560; text-align: left; }
 .secondary-button:hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
 .secondary-button:active, .danger-button:active { transform: translateY(1px); }
+.secondary-button[aria-busy="true"], .danger-button[aria-busy="true"] { opacity: .6; cursor: progress; }
+.secondary-button:disabled, .danger-button:disabled, .canvas-delete:disabled { opacity: .6; }
 .danger-button { color: var(--danger); }
 .danger-button:hover { background: color-mix(in srgb, var(--danger) 8%, transparent); }
 .share-list { display: grid; gap: 8px; padding-top: 4px; }
@@ -61,8 +63,8 @@ h2 { font-size: clamp(1.6rem, 7vw, 2.15rem); font-weight: 650; letter-spacing: -
 .share-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .share-meta { display: block; color: var(--muted); font-size: .78rem; line-height: 1.35; }
 .share-detail { min-width: 0; flex: 1; }
-.share-url { width: 100%; min-height: 36px; margin-top: 6px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--text); background: var(--bg); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .7rem; }
-.share-revoke { min-height: 36px; flex: 0 0 auto; }
+.share-url { width: 100%; min-height: 44px; margin-top: 6px; padding: 0 8px; border: 1px solid var(--line); border-radius: 6px; color: var(--text); background: var(--bg); font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .7rem; }
+.share-revoke { min-height: 44px; flex: 0 0 auto; }
 .error-text { max-width: 42ch; color: var(--danger); line-height: 1.5; text-wrap: pretty; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 

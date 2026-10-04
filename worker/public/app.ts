@@ -1,9 +1,12 @@
 import { api, type ArtifactItem, type CanvasItem, type PublicShare, type RevisionItem, type SessionItem } from "./api";
+import { haptic, runPendingAction } from "./interactions";
 import { CanvasNavigator, type CanvasRenderer, type TelegramBackButton } from "./navigation";
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 const webapp = (window as { Telegram?: { WebApp?: { initData?: string; ready(): void; expand(): void; BackButton?: TelegramBackButton } } }).Telegram?.WebApp;
 let renderGeneration = 0;
+// In-flight share-list reads are dropped once a direct render or cleanup supersedes them.
+let shareListVersion = 0;
 
 const renderer: CanvasRenderer = {
   render(view) {
@@ -83,11 +86,15 @@ function canvasCard(canvas: CanvasItem): HTMLLIElement {
   meta.textContent = `${canvas.revision_count} revision${canvas.revision_count === 1 ? "" : "s"} · ${formatBytes(canvas.current_revision_bytes)} · updated ${formatRelativeDate(canvas.updated_at ?? canvas.created_at)} · expires ${formatRelativeDate(canvas.session_expires_at)}`;
   open.append(title, session, meta);
   const remove = document.createElement("button"); remove.type = "button"; remove.className = "canvas-delete"; remove.textContent = "Delete";
-  remove.onclick = async () => {
+  remove.onclick = () => {
     if (!confirm(`Delete “${canvas.title || "Untitled canvas"}”? You can restore it only by republishing.`)) return;
-    remove.disabled = true;
-    if (await api.trashArtifact(canvas.id)) { api.clearCachedBootstrap(); void navigator.openPicker(); }
-    else { remove.disabled = false; remove.textContent = "Try again"; }
+    const generation = renderGeneration;
+    void runPendingAction(remove, async () => {
+      if (!await api.trashArtifact(canvas.id)) return false;
+      api.clearCachedBootstrap();
+      if (generation === renderGeneration) void navigator.openPicker();
+      return "Deleted ✓";
+    }, { busy: "Deleting…", error: "Could not delete" }, () => generation === renderGeneration);
   };
   item.append(open, remove); return item;
 }
@@ -115,33 +122,34 @@ function shareButton(artifact: ArtifactItem): HTMLButtonElement {
   button.type = "button";
   button.className = "gallery-share secondary-button";
   button.textContent = "Copy public link";
-  button.onclick = async () => {
-    button.disabled = true;
-    try {
-      const shares = await api.listPublicShares(artifact.id);
-      const share = shares.find((candidate) => candidate.revision_id === artifact.current_revision_id)
-        ?? await api.createPublicShare(artifact.id, 30 * 86400);
-      try {
-        if (!window.navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
-        await window.navigator.clipboard.writeText(share.url);
-        button.textContent = "Link copied ✓";
-      } catch {
-        button.textContent = "Link ready below";
-        const url = document.createElement("input");
-        url.className = "share-url gallery-share-url";
-        url.type = "url";
-        url.readOnly = true;
-        url.value = share.url;
-        url.setAttribute("aria-label", "Public canvas link, select and copy");
-        button.parentElement?.appendChild(url);
-      }
-    } catch {
-      button.textContent = "Could not create link";
-    } finally {
-      button.disabled = false;
+  let urlInput: HTMLInputElement | null = null;
+  const showUrl = (url: string): void => {
+    if (!urlInput) {
+      urlInput = document.createElement("input");
+      urlInput.className = "share-url gallery-share-url";
+      urlInput.type = "url";
+      urlInput.readOnly = true;
+      urlInput.setAttribute("aria-label", "Public canvas link, select and copy");
+      button.parentElement?.appendChild(urlInput);
     }
+    if (urlInput.value !== url) urlInput.value = url;
+  };
+  button.onclick = () => {
+    const generation = renderGeneration;
+    void runPendingAction(button, async () => {
+      // create is idempotent server-side: one call reuses the artifact's active link.
+      const share = await api.createPublicShare(artifact.id, 30 * 86400);
+      if (generation !== renderGeneration) return false;
+      showUrl(share.url);
+      return await copyText(share.url) ? "Link copied ✓" : "Link ready below";
+    }, { busy: "Creating…", error: "Could not create link" }, () => generation === renderGeneration);
   };
   return button;
+}
+
+async function copyText(text: string): Promise<boolean> {
+  if (!window.navigator.clipboard?.writeText) return false;
+  try { await window.navigator.clipboard.writeText(text); return true; } catch { return false; }
 }
 
 async function renderViewer(session: SessionItem, artifact: ArtifactItem, generation: number): Promise<void> {
@@ -160,39 +168,41 @@ async function renderViewer(session: SessionItem, artifact: ArtifactItem, genera
     } else { renderer.showError("This canvas no longer has a ready revision."); return; }
     selector.onchange = () => loadDocument(artifact.id, selector.value);
     void renderPublicShares(artifact, generation);
-    $("btn-download").onclick = () => window.open(api.getDownloadUrl(artifact.id), "_blank", "noopener");
-    $("btn-extend").onclick = async () => {
-      if (await api.extendExpiry(artifact.id) && generation === renderGeneration) $("btn-extend").textContent = "Extended ✓";
-    };
-    $("btn-share").onclick = async () => {
-      const shareButton = $<HTMLButtonElement>("btn-share");
-      shareButton.disabled = true;
-      try {
-        const duration = Number($<HTMLSelectElement>("share-duration").value);
-        const shares = await api.listPublicShares(artifact.id);
-        const share = shares.find((candidate) => candidate.revision_id === artifact.current_revision_id)
-          ?? await api.createPublicShare(artifact.id, duration);
-        try {
-          if (!window.navigator.clipboard?.writeText) throw new Error("Clipboard API unavailable");
-          await window.navigator.clipboard.writeText(share.url);
-          shareButton.textContent = "Public link copied ✓";
-        } catch {
-          shareButton.textContent = "Public link ready below";
-        }
-        if (generation === renderGeneration) await renderPublicShares(artifact, generation);
-      } catch { shareButton.textContent = "Could not create link"; }
-      finally { shareButton.disabled = false; }
-    };
-    $("btn-delete").onclick = async () => {
-      closeViewerMenu(false);
-      if (confirm("Delete this artifact?") && await api.trashArtifact(artifact.id) && generation === renderGeneration) {
-        api.clearCachedBootstrap();
-        navigator.openGallery(session);
-      }
-    };
+    wireViewerActions(session, artifact, generation);
   } catch {
     if (generation === renderGeneration) renderer.showError("Could not load canvas revisions. Please retry.");
   }
+}
+
+/** Bind the viewer action buttons with pending feedback and generation guards. */
+export function wireViewerActions(session: SessionItem, artifact: ArtifactItem, generation: number): void {
+  const isCurrent = (): boolean => generation === renderGeneration;
+  $("btn-download").onclick = () => {
+    haptic("light");
+    // noopener makes window.open return null even on success, so report the request, not a result.
+    window.open(api.getDownloadUrl(artifact.id), "_blank", "noopener");
+    if (isCurrent()) $("btn-download").textContent = "Download requested";
+  };
+  $("btn-extend").onclick = () => void runPendingAction($("btn-extend"), async () =>
+    await api.extendExpiry(artifact.id) ? "Extended ✓" : false,
+    { busy: "Extending…", error: "Could not extend" }, isCurrent);
+  $("btn-share").onclick = () => void runPendingAction($("btn-share"), async () => {
+    // create is idempotent server-side: one call reuses the artifact's active link.
+    const duration = Number($<HTMLSelectElement>("share-duration").value);
+    const share = await api.createPublicShare(artifact.id, duration);
+    const copied = isCurrent() ? await copyText(share.url) : false;
+    if (isCurrent()) renderShareList(artifact, [share], generation);
+    return copied ? "Public link copied ✓" : "Public link ready below";
+  }, { busy: "Creating…", error: "Could not create link" }, isCurrent);
+  $("btn-delete").onclick = () => {
+    if (!confirm("Delete this artifact?")) return;
+    void runPendingAction($("btn-delete"), async () => {
+      if (!await api.trashArtifact(artifact.id)) return false;
+      api.clearCachedBootstrap();
+      if (isCurrent()) { closeViewerMenu(false); navigator.openGallery(session); }
+      return "Deleted ✓";
+    }, { busy: "Deleting…", error: "Could not delete" }, isCurrent);
+  };
 }
 
 function renderShareRow(artifact: ArtifactItem, share: PublicShare, generation: number): HTMLDivElement {
@@ -214,33 +224,44 @@ function renderShareRow(artifact: ArtifactItem, share: PublicShare, generation: 
   revoke.type = "button";
   revoke.className = "danger-button share-revoke";
   revoke.textContent = "Unshare";
-  revoke.onclick = async () => {
+  revoke.onclick = () => {
     if (!confirm("Unshare this public link? Anyone with it will lose access immediately.")) return;
-    revoke.disabled = true;
-    if (await api.revokePublicShare(artifact.id, share.token) && generation === renderGeneration) await renderPublicShares(artifact, generation);
-    else revoke.disabled = false;
+    void runPendingAction(revoke, async () => {
+      if (!await api.revokePublicShare(artifact.id, share.token)) return false;
+      if (generation === renderGeneration) await renderPublicShares(artifact, generation);
+      return "Unshared ✓";
+    }, { busy: "Unsharing…", error: "Could not unshare" }, () => generation === renderGeneration);
   };
   row.append(detail, revoke);
   return row;
 }
 
-async function renderPublicShares(artifact: ArtifactItem, generation: number): Promise<void> {
+function renderShareList(artifact: ArtifactItem, shares: PublicShare[], generation: number): void {
+  shareListVersion += 1; // a direct render supersedes any in-flight list read
   const list = $("public-share-list");
+  list.replaceChildren();
+  if (!shares.length) return;
+  const label = document.createElement("p");
+  label.className = "share-label";
+  label.textContent = "Public link · always latest";
+  list.append(label, ...shares.map((share) => renderShareRow(artifact, share, generation)));
+}
+
+export async function renderPublicShares(artifact: ArtifactItem, generation: number): Promise<void> {
+  const version = ++shareListVersion;
   try {
     const shares = await api.listPublicShares(artifact.id);
-    if (generation !== renderGeneration) return;
-    list.replaceChildren();
-    if (!shares.length) return;
-    const label = document.createElement("p");
-    label.className = "share-label";
-    label.textContent = "Active public links";
-    list.append(label, ...shares.map((share) => renderShareRow(artifact, share, generation)));
+    // Drop the read if cleanup, a direct render, or navigation superseded it.
+    if (version !== shareListVersion || generation !== renderGeneration) return;
+    renderShareList(artifact, shares, generation);
   } catch {
-    if (generation === renderGeneration) list.replaceChildren();
+    // A failed refresh must never hide a link the user already has on screen.
   }
 }
 
-function clearTransientContent(): void {
+/** Navigation cleanup: drop pending state so a stale async completion cannot revive a reused button. */
+export function clearTransientContent(): void {
+  shareListVersion += 1; // supersede any in-flight share-list read
   closeViewerMenu(false);
   $<HTMLIFrameElement>("artifact-iframe").src = "about:blank";
   $<HTMLUListElement>("session-list").replaceChildren();
@@ -250,9 +271,17 @@ function clearTransientContent(): void {
   const selector = $<HTMLSelectElement>("revision-selector");
   selector.replaceChildren();
   selector.onchange = null;
-  for (const id of ["btn-download", "btn-extend", "btn-share", "btn-delete"]) $(id).onclick = null;
+  for (const id of ["btn-download", "btn-extend", "btn-share", "btn-delete"]) {
+    const button = $<HTMLButtonElement>(id);
+    button.onclick = null;
+    button.disabled = false;
+    button.removeAttribute("aria-busy");
+    delete button.dataset.pending;
+  }
+  $("btn-download").textContent = "Download";
   $("btn-extend").textContent = "Extend 30d";
   $("btn-share").textContent = "Create public link";
+  $("btn-delete").textContent = "Delete";
 }
 
 function openViewerMenu(): void {
@@ -309,8 +338,12 @@ document.addEventListener("pointerdown", (event) => {
   if (!$("viewer-menu").hidden && !$("viewer-menu").contains(target) && !$("viewer-menu-toggle").contains(target)) closeViewerMenu();
 });
 $("btn-retry").onclick = () => void init();
-if (document.readyState === "loading") {
-  document.addEventListener("DOMContentLoaded", () => void init());
-} else {
-  void init();
+// Tests set __canvasSkipAutoInit to import the handlers without booting the app.
+const skipAutoInit = (globalThis as { __canvasSkipAutoInit?: boolean }).__canvasSkipAutoInit;
+if (!skipAutoInit) {
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", () => void init());
+  } else {
+    void init();
+  }
 }

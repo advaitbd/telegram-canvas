@@ -53,27 +53,27 @@ export default {
 		}
 
 		if (path === "/api/bootstrap" && method === "GET") {
-			return handleBootstrap(request, env.CANVAS_DB);
+			return handleBootstrap(request, env.CANVAS_DB, env.IDENTITY_HMAC_KEY);
 		}
 
 		if (path === "/api/sessions" && method === "GET") {
-			return handleListSessions(request, env.CANVAS_DB);
+			return handleListSessions(request, env.CANVAS_DB, env.IDENTITY_HMAC_KEY);
 		}
 
 		if (path === "/api/canvases" && method === "GET") {
-			return handleListCanvases(request, env.CANVAS_DB);
+			return handleListCanvases(request, env.CANVAS_DB, env.IDENTITY_HMAC_KEY);
 		}
 
 		// /api/sessions/:id/artifacts
 		const sessionsMatch = path.match(/^\/api\/sessions\/([^/]+)\/artifacts$/);
 		if (sessionsMatch && method === "GET") {
-			return handleListArtifacts(request, env.CANVAS_DB, sessionsMatch[1]);
+			return handleListArtifacts(request, env.CANVAS_DB, sessionsMatch[1], env.IDENTITY_HMAC_KEY);
 		}
 
 		// /api/artifacts/:id
 		const artGetMatch = path.match(/^\/api\/artifacts\/([^/]+)$/);
 		if (artGetMatch && method === "GET") {
-			return handleGetArtifact(request, env.CANVAS_DB, artGetMatch[1]);
+			return handleGetArtifact(request, env.CANVAS_DB, artGetMatch[1], env.IDENTITY_HMAC_KEY);
 		}
 
 		// /api/artifacts/:id/revisions/:revId/document
@@ -85,7 +85,7 @@ export default {
 		// /api/artifacts/:id/revisions
 		const revMatch = path.match(/^\/api\/artifacts\/([^/]+)\/revisions$/);
 		if (revMatch && method === "GET") {
-			return handleListRevisions(request, env.CANVAS_DB, revMatch[1]);
+			return handleListRevisions(request, env.CANVAS_DB, revMatch[1], env.IDENTITY_HMAC_KEY);
 		}
 
 		// /api/artifacts/:id/download
@@ -97,20 +97,20 @@ export default {
 		// /api/artifacts/:id/extend
 		const extMatch = path.match(/^\/api\/artifacts\/([^/]+)\/extend$/);
 		if (extMatch && method === "POST") {
-			return handleExtend(request, env.CANVAS_DB, extMatch[1]);
+			return handleExtend(request, env.CANVAS_DB, extMatch[1], env.IDENTITY_HMAC_KEY);
 		}
 
 		// DELETE /api/artifacts/:id
 		const trashMatch = path.match(/^\/api\/artifacts\/([^/]+)$/);
 		if (trashMatch && method === "DELETE") {
-			return handleTrash(request, env.CANVAS_DB, trashMatch[1]);
+			return handleTrash(request, env.CANVAS_DB, trashMatch[1], env.IDENTITY_HMAC_KEY);
 		}
 
 		const sharesMatch = path.match(/^\/api\/artifacts\/([^/]+)\/shares$/);
-		if (sharesMatch && method === "GET") return handleListShares(request, env.CANVAS_DB, sharesMatch[1]);
-		if (sharesMatch && method === "POST") return handleCreateShare(request, env.CANVAS_DB, sharesMatch[1]);
+		if (sharesMatch && method === "GET") return handleListShares(request, env.CANVAS_DB, sharesMatch[1], env.IDENTITY_HMAC_KEY);
+		if (sharesMatch && method === "POST") return handleCreateShare(request, env.CANVAS_DB, sharesMatch[1], env.IDENTITY_HMAC_KEY);
 		const shareRevokeMatch = path.match(/^\/api\/artifacts\/([^/]+)\/shares\/([a-f0-9]{48})$/);
-		if (shareRevokeMatch && method === "DELETE") return handleRevokeShare(request, env.CANVAS_DB, shareRevokeMatch[1], shareRevokeMatch[2]);
+		if (shareRevokeMatch && method === "DELETE") return handleRevokeShare(request, env.CANVAS_DB, shareRevokeMatch[1], shareRevokeMatch[2], env.IDENTITY_HMAC_KEY);
 
 		// /api/stream/:sessionId
 		const streamMatch = path.match(/^\/api\/stream\/([^/]+)$/);

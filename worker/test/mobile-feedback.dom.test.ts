@@ -233,6 +233,17 @@ describe("viewer open performance", () => {
     await vi.waitFor(() => expect(api.listPublicShares).toHaveBeenCalledTimes(1));
   });
 
+  it("retries share-list failures when the action menu reopens", async () => {
+    api.listPublicShares = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue([]);
+    await app.renderViewer(session, a, 0);
+    element<HTMLButtonElement>("viewer-menu-toggle").click();
+    await vi.waitFor(() => expect(element("public-share-list").textContent).toContain("Reopen"));
+    element<HTMLButtonElement>("viewer-menu-toggle").click();
+    element<HTMLButtonElement>("viewer-menu-toggle").click();
+    await vi.waitFor(() => expect(api.listPublicShares).toHaveBeenCalledTimes(2));
+    expect(element("public-share-list").textContent).toBe("");
+  });
+
   it("keeps the eager document and safe actions available when revisions fail", async () => {
     api.listRevisions = vi.fn().mockRejectedValue(new Error("revisions unavailable"));
     api.extendExpiry = vi.fn().mockResolvedValue(true);
@@ -290,6 +301,29 @@ describe("archive search", () => {
     element<HTMLButtonElement>("clear-canvas-search").click();
     expect(search.value).toBe("");
     expect(document.querySelectorAll(".canvas-card")).toHaveLength(2);
+  });
+
+  it("retains pending deletion and failure feedback while search changes", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let finish!: (value: boolean) => void;
+    api.trashArtifact = vi.fn().mockReturnValue(new Promise<boolean>((resolve) => { finish = resolve; }));
+    app.renderManagement([managed("needle", "Needle canvas", "First session")]);
+    element<HTMLButtonElement>("clear-canvas-search").click();
+    const button = document.querySelector<HTMLButtonElement>(".canvas-delete")!;
+    button.click();
+    const search = element<HTMLInputElement>("canvas-search");
+    search.value = "missing";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    search.value = "needle";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(document.querySelector(".canvas-delete")).toBe(button);
+    expect(button.disabled).toBe(true);
+    button.click();
+    expect(api.trashArtifact).toHaveBeenCalledTimes(1);
+    finish(false);
+    await vi.waitFor(() => expect(button.textContent).toBe("Could not delete"));
+    element<HTMLButtonElement>("clear-canvas-search").click();
+    expect(document.querySelector(".canvas-delete")?.textContent).toBe("Could not delete");
   });
 
   it("deletes in the archive without losing the search", async () => {

@@ -10,6 +10,7 @@ let shareListVersion = 0;
 let shareListRequestedGeneration = -1;
 let activeViewer: { artifact: ArtifactItem; generation: number } | null = null;
 let managementCanvases: CanvasItem[] = [];
+let managementRows = new Map<string, HTMLLIElement>();
 let managementQuery = "";
 
 const renderer: CanvasRenderer = {
@@ -83,6 +84,7 @@ function sessionRow(session: SessionItem): HTMLLIElement {
 
 export function renderManagement(canvases: CanvasItem[]): void {
   managementCanvases = canvases;
+  managementRows = new Map(canvases.map((canvas) => [canvas.id, canvasCard(canvas)]));
   renderManagementList();
 }
 
@@ -102,7 +104,7 @@ function renderManagementList(): void {
     appendEmpty(list, query ? "No canvases match your search." : "No canvases yet. Ask the agent to publish one, then it will live here.");
     return;
   }
-  for (const canvas of canvases) list.appendChild(canvasCard(canvas));
+  for (const canvas of canvases) list.appendChild(managementRows.get(canvas.id)!);
 }
 
 function canvasCard(canvas: CanvasItem): HTMLLIElement {
@@ -306,7 +308,10 @@ export async function renderPublicShares(artifact: ArtifactItem, generation: num
     if (version !== shareListVersion || generation !== renderGeneration) return;
     renderShareList(artifact, shares, generation);
   } catch {
-    // A failed refresh must never hide a link the user already has on screen.
+    if (version !== shareListVersion || generation !== renderGeneration) return;
+    shareListRequestedGeneration = -1;
+    const list = $("public-share-list");
+    if (!list.hasChildNodes()) list.textContent = "Could not load public links. Reopen this menu to retry.";
   }
 }
 

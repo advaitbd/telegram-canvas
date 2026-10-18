@@ -15,12 +15,13 @@ export interface ArtifactItem {
 	session_id: string;
 	title: string;
 	current_revision_id: string | null;
-	trashed_at: number | null;
+	trashed_at?: number | null;
 	created_at: number;
 	updated_at?: number;
 }
 
 export interface CanvasItem extends ArtifactItem {
+	updated_at: number;
 	session_title: string;
 	session_last_active_at: number;
 	session_expires_at: number;
@@ -40,14 +41,6 @@ export interface RevisionItem {
 interface LoginResponse {
 	ok: boolean;
 	user: { id: number; first_name: string };
-}
-
-interface PublishResponse {
-	ok: boolean;
-	artifact_id: string;
-	revision_id: string;
-	ordinal: number;
-	action: "created" | "updated";
 }
 
 export interface PublicShare {
@@ -99,7 +92,7 @@ export class CanvasApi {
 	}
 
 	clearCachedBootstrap(): void {
-		sessionStorage.removeItem(BOOTSTRAP_CACHE_KEY);
+		try { sessionStorage.removeItem(BOOTSTRAP_CACHE_KEY); } catch { /* Optional cache must not fail a successful mutation. */ }
 	}
 
 	private setCachedBootstrap(canvas: BootstrapCanvas): void {

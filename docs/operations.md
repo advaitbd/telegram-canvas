@@ -103,6 +103,29 @@ cd worker
 npx wrangler deploy
 ```
 
+## Viewer behavior and checks
+
+Canvas opens the session picker. The archive supports local title/session search;
+filtering makes no API requests and preserves pending delete controls and errors.
+The active document loads eagerly. Public-share metadata loads when the actions
+menu first opens, and a failed read can retry on the next open. Revision-list
+failures leave an already loaded document visible and provide an inline retry.
+
+`npm run typecheck` checks both Worker and browser TypeScript. Run it alongside
+`npm test` and `npm run build` before release; the CI and deploy checks use it too.
+
+## Session cookie rollout
+
+Private API requests require a versioned HMAC-SHA256 cookie with a random nonce,
+owner hash, and server-checked one-hour expiry. Signing reuses `IDENTITY_HMAC_KEY`
+with a distinct `canvas-session-cookie:` domain. No database migration or new
+secret is required. Unsigned legacy cookies are rejected. Reopening Canvas in
+Telegram obtains a fresh cookie through the existing login flow.
+
+Existing artifacts and public tokens are unchanged. Public links retain their
+own expiry/revocation checks and do not require a private viewer cookie. Do not
+roll back to the unsigned-cookie implementation as a routine recovery step.
+
 ## Public link lifecycle
 
 Public links are live artifact links. Publishing a revision with the same `artifact_id`

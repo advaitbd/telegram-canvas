@@ -45,7 +45,8 @@ flowchart LR
    Web App, carrying signed init data for that Telegram user.
 2. The shell sends that init data to the Worker. The Worker validates it with the
    bot token, derives an owner hash, and gives the shell a short-lived,
-   owner-scoped session cookie.
+   owner-scoped session cookie. The Worker verifies its HMAC signature and expiry
+   on every authenticated request.
 3. During the matching Hermes conversation, `canvas_publish` reads the trusted
    gateway session context, then HMAC-signs the HTML artifact and sends it to the
    Worker. The model never supplies the identity fields itself. Tiny trust issue,

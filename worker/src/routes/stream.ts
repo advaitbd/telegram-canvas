@@ -19,11 +19,12 @@ export async function handleStream(
 	env: {
 		CANVAS_DB: D1Database;
 		ARTIFACT_ROOM: DurableObjectNamespace;
+		IDENTITY_HMAC_KEY: string;
 	},
 	sessionId: string,
 ): Promise<Response> {
 	// Authorization: check the shell cookie
-	const ownerHash = getOwnerFromCookie(request);
+	const ownerHash = await getOwnerFromCookie(request, env.IDENTITY_HMAC_KEY);
 	if (!ownerHash) {
 		return jsonError(401, "Unauthorized");
 	}

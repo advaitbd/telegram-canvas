@@ -64,6 +64,9 @@ export interface BootstrapCanvas {
 
 const BOOTSTRAP_CACHE_KEY = "canvas_bootstrap_v1";
 const BOOTSTRAP_CACHE_TTL_MS = 60_000;
+function requestError(message: string, response: Response): Error {
+	return new Error(`${message} (${response.status})`);
+}
 
 export class CanvasApi {
 	/** Exchange Telegram WebApp init data for a session cookie. */
@@ -81,7 +84,7 @@ export class CanvasApi {
 
 	async bootstrap(): Promise<BootstrapCanvas | null> {
 		const res = await fetch(`${API_BASE}/api/bootstrap`, { credentials: "include" });
-		if (!res.ok) throw new Error("Failed to bootstrap Canvas");
+		if (!res.ok) throw requestError("Failed to bootstrap Canvas", res);
 		const body = await res.json() as { canvas?: BootstrapCanvas | null };
 		if (body.canvas) this.setCachedBootstrap(body.canvas);
 		else sessionStorage.removeItem(BOOTSTRAP_CACHE_KEY);
@@ -108,7 +111,7 @@ export class CanvasApi {
 		const res = await fetch(`${API_BASE}/api/sessions`, {
 			credentials: "include",
 		});
-		if (!res.ok) throw new Error("Failed to list sessions");
+		if (!res.ok) throw requestError("Failed to list sessions", res);
 		const body = await res.json();
 		return body.sessions ?? [];
 	}
@@ -116,7 +119,7 @@ export class CanvasApi {
 	/** List all viewable canvases with enough metadata for archive management. */
 	async listCanvases(): Promise<CanvasItem[]> {
 		const res = await fetch(`${API_BASE}/api/canvases`, { credentials: "include" });
-		if (!res.ok) throw new Error("Failed to list canvases");
+		if (!res.ok) throw requestError("Failed to list canvases", res);
 		const body = await res.json();
 		return body.canvases ?? [];
 	}
@@ -126,7 +129,7 @@ export class CanvasApi {
 		const res = await fetch(`${API_BASE}/api/sessions/${sessionId}/artifacts`, {
 			credentials: "include",
 		});
-		if (!res.ok) throw new Error("Failed to list artifacts");
+		if (!res.ok) throw requestError("Failed to list artifacts", res);
 		const body = await res.json();
 		return body.artifacts ?? [];
 	}
@@ -136,7 +139,7 @@ export class CanvasApi {
 		const res = await fetch(`${API_BASE}/api/artifacts/${artifactId}/revisions`, {
 			credentials: "include",
 		});
-		if (!res.ok) throw new Error("Failed to list revisions");
+		if (!res.ok) throw requestError("Failed to list revisions", res);
 		const body = await res.json();
 		return body.revisions ?? [];
 	}
@@ -190,7 +193,7 @@ export class CanvasApi {
 
 	async listPublicShares(artifactId: string): Promise<PublicShare[]> {
 		const res = await fetch(`${API_BASE}/api/artifacts/${artifactId}/shares`, { credentials: "include" });
-		if (!res.ok) throw new Error("Failed to list public shares");
+		if (!res.ok) throw requestError("Failed to list public shares", res);
 		const body = await res.json();
 		return body.shares ?? [];
 	}

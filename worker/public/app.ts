@@ -7,8 +7,20 @@ const webapp = (window as { Telegram?: { WebApp?: { initData?: string; ready(): 
 let renderGeneration = 0;
 // In-flight share-list reads are dropped once a direct render or cleanup supersedes them.
 let shareListVersion = 0;
+let shareListRequestedGeneration = -1;
+let activeViewer: { artifact: ArtifactItem; generation: number } | null = null;
+let managementCanvases: CanvasItem[] = [];
+let managementQuery = "";
 
 const renderer: CanvasRenderer = {
+  showLoading(message) {
+    renderGeneration += 1;
+    activeViewer = null;
+    shareListRequestedGeneration = -1;
+    closeViewerMenu(false);
+    $("loading-screen").textContent = message;
+    showScreen("loading-screen");
+  },
   render(view) {
     renderGeneration += 1;
     clearTransientContent();
@@ -24,6 +36,7 @@ const renderer: CanvasRenderer = {
     showScreen("error-screen");
   },
 };
+
 
 const navigator = new CanvasNavigator(api, renderer, webapp?.BackButton);
 async function init(): Promise<void> {
@@ -68,11 +81,27 @@ function sessionRow(session: SessionItem): HTMLLIElement {
   return item;
 }
 
-function renderManagement(canvases: CanvasItem[]): void {
+export function renderManagement(canvases: CanvasItem[]): void {
+  managementCanvases = canvases;
+  renderManagementList();
+}
+
+function renderManagementList(): void {
   showScreen("canvas-management");
+  const query = managementQuery.trim().toLowerCase();
+  const canvases = query
+    ? managementCanvases.filter((canvas) => `${canvas.title} ${canvas.session_title}`.toLowerCase().includes(query))
+    : managementCanvases;
+  $("management-count").textContent = query
+    ? `${canvases.length} of ${managementCanvases.length} canvases`
+    : `${canvases.length} canvas${canvases.length === 1 ? "" : "es"}`;
+  $<HTMLButtonElement>("clear-canvas-search").disabled = !query;
   const list = $<HTMLUListElement>("canvas-list");
-  $("management-count").textContent = `${canvases.length} canvas${canvases.length === 1 ? "" : "es"}`;
-  if (!canvases.length) { appendEmpty(list, "No canvases yet. Ask the agent to publish one, then it will live here."); return; }
+  list.replaceChildren();
+  if (!canvases.length) {
+    appendEmpty(list, query ? "No canvases match your search." : "No canvases yet. Ask the agent to publish one, then it will live here.");
+    return;
+  }
   for (const canvas of canvases) list.appendChild(canvasCard(canvas));
 }
 
@@ -92,7 +121,10 @@ function canvasCard(canvas: CanvasItem): HTMLLIElement {
     void runPendingAction(remove, async () => {
       if (!await api.trashArtifact(canvas.id)) return false;
       api.clearCachedBootstrap();
-      if (generation === renderGeneration) void navigator.openPicker();
+      if (generation === renderGeneration) {
+        managementCanvases = managementCanvases.filter((item) => item.id !== canvas.id);
+        renderManagementList();
+      }
       return "Deleted ✓";
     }, { busy: "Deleting…", error: "Could not delete" }, () => generation === renderGeneration);
   };
@@ -152,26 +184,45 @@ async function copyText(text: string): Promise<boolean> {
   try { await window.navigator.clipboard.writeText(text); return true; } catch { return false; }
 }
 
-async function renderViewer(session: SessionItem, artifact: ArtifactItem, generation: number): Promise<void> {
+export async function renderViewer(session: SessionItem, artifact: ArtifactItem, generation: number): Promise<void> {
   const title = artifact.title || "Untitled canvas";
+  activeViewer = { artifact, generation };
   $("viewer-title").textContent = title;
   $<HTMLIFrameElement>("artifact-iframe").title = title;
   showScreen("artifact-viewer");
   if (artifact.current_revision_id) loadDocument(artifact.id, artifact.current_revision_id);
+  wireViewerActions(session, artifact, generation);
+  void loadViewerRevisions(artifact, generation);
+}
+
+async function loadViewerRevisions(artifact: ArtifactItem, generation: number): Promise<void> {
+  if (generation !== renderGeneration) return;
   const selector = $<HTMLSelectElement>("revision-selector");
+  const retry = $<HTMLButtonElement>("btn-retry-revisions");
+  setRevisionStatus("Loading revisions…", false);
+  retry.onclick = () => void loadViewerRevisions(artifact, generation);
   try {
     const revisions = await api.listRevisions(artifact.id);
     if (generation !== renderGeneration) return;
-    for (const revision of revisions) selector.appendChild(revisionOption(revision));
-    if (revisions[0]) {
-      if (!artifact.current_revision_id) loadDocument(artifact.id, revisions[0].id);
-    } else { renderer.showError("This canvas no longer has a ready revision."); return; }
+    selector.replaceChildren(...revisions.map(revisionOption));
+    if (!revisions.length) {
+      setRevisionStatus("No ready revisions are available. Retry to check again.", true);
+      return;
+    }
+    if (!artifact.current_revision_id) loadDocument(artifact.id, revisions[0].id);
+    else selector.value = artifact.current_revision_id;
     selector.onchange = () => loadDocument(artifact.id, selector.value);
-    void renderPublicShares(artifact, generation);
-    wireViewerActions(session, artifact, generation);
+    setRevisionStatus("", false);
   } catch {
-    if (generation === renderGeneration) renderer.showError("Could not load canvas revisions. Please retry.");
+    if (generation === renderGeneration) setRevisionStatus("Could not load revisions. Retry to check again.", true);
   }
+}
+
+function setRevisionStatus(message: string, retry: boolean): void {
+  const status = $("revision-status");
+  status.textContent = message;
+  status.hidden = !message;
+  $("btn-retry-revisions").hidden = !retry;
 }
 
 /** Bind the viewer action buttons with pending feedback and generation guards. */
@@ -262,6 +313,8 @@ export async function renderPublicShares(artifact: ArtifactItem, generation: num
 /** Navigation cleanup: drop pending state so a stale async completion cannot revive a reused button. */
 export function clearTransientContent(): void {
   shareListVersion += 1; // supersede any in-flight share-list read
+  shareListRequestedGeneration = -1;
+  activeViewer = null;
   closeViewerMenu(false);
   $<HTMLIFrameElement>("artifact-iframe").src = "about:blank";
   $<HTMLUListElement>("session-list").replaceChildren();
@@ -271,6 +324,10 @@ export function clearTransientContent(): void {
   const selector = $<HTMLSelectElement>("revision-selector");
   selector.replaceChildren();
   selector.onchange = null;
+  $("revision-status").textContent = "";
+  $("revision-status").hidden = true;
+  $<HTMLButtonElement>("btn-retry-revisions").onclick = null;
+  $<HTMLButtonElement>("btn-retry-revisions").hidden = true;
   for (const id of ["btn-download", "btn-extend", "btn-share", "btn-delete"]) {
     const button = $<HTMLButtonElement>(id);
     button.onclick = null;
@@ -289,6 +346,10 @@ function openViewerMenu(): void {
   menu.hidden = false;
   $("viewer-menu-toggle").setAttribute("aria-expanded", "true");
   $<HTMLSelectElement>("revision-selector").focus();
+  if (activeViewer && activeViewer.generation === renderGeneration && shareListRequestedGeneration !== renderGeneration) {
+    shareListRequestedGeneration = renderGeneration;
+    void renderPublicShares(activeViewer.artifact, renderGeneration);
+  }
 }
 
 function closeViewerMenu(returnFocus = true): void {
@@ -328,9 +389,19 @@ function loadDocument(artifactId: string, revisionId: string): void {
   $<HTMLIFrameElement>("artifact-iframe").src = api.getDocumentUrl(artifactId, revisionId);
 }
 $("back-to-management").onclick = () => void navigator.openPicker();
-$("open-management").onclick = () => void navigator.openManagement();
 $("back-to-gallery").onclick = () => { closeViewerMenu(false); navigator.back(); };
-$("browse-all").onclick = () => { clearTransientContent(); void navigator.openManagement(); };
+$("open-management").onclick = () => void navigator.openManagement();
+$("canvas-search").oninput = () => {
+  managementQuery = $<HTMLInputElement>("canvas-search").value;
+  renderManagementList();
+};
+$("clear-canvas-search").onclick = () => {
+  managementQuery = "";
+  $<HTMLInputElement>("canvas-search").value = "";
+  renderManagementList();
+  $<HTMLInputElement>("canvas-search").focus();
+};
+$("browse-all").onclick = () => void navigator.openManagement();
 $("viewer-menu-toggle").onclick = () => $("viewer-menu").hidden ? openViewerMenu() : closeViewerMenu();
 document.addEventListener("keydown", (event) => { if (event.key === "Escape" && !$("viewer-menu").hidden) { event.preventDefault(); closeViewerMenu(); } });
 document.addEventListener("pointerdown", (event) => {

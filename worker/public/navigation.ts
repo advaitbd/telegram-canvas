@@ -52,16 +52,23 @@ export type NavigationView =
   | { kind: "gallery"; session: Session; artifacts: Artifact[] }
   | { kind: "viewer"; session: Session; artifact: Artifact };
 
-export interface CanvasRenderer {
-  render(view: NavigationView): void;
-  showError(message: string): void;
-}
-
 export interface TelegramBackButton {
   show(): void;
   hide(): void;
   onClick(callback: () => void): void;
   offClick(callback: () => void): void;
+}
+
+export interface CanvasRenderer {
+  render(view: NavigationView): void;
+  showLoading(message: string): void;
+  showError(message: string): void;
+}
+
+interface PendingNavigation {
+  key: string;
+  generation: number;
+  promise: Promise<void>;
 }
 
 const newestFirst = <T extends { id: string }>(items: T[], timestamp: keyof T): T[] =>
@@ -81,6 +88,7 @@ export class CanvasNavigator {
   private generation = 0;
   private readonly artifactsBySession = new Map<string, Artifact[]>();
   private current: NavigationView | null = null;
+  private pending: PendingNavigation | null = null;
   private readonly onTelegramBack = () => this.back();
 
   constructor(
@@ -93,40 +101,31 @@ export class CanvasNavigator {
     await this.openPicker();
   }
 
-  async openPicker(): Promise<void> {
-    const generation = this.nextGeneration();
-    try {
+  openPicker(): Promise<void> {
+    return this.navigate("picker", "Loading sessions…", async (generation) => {
       const sessions = newestFirst(await this.api.listSessions(), "last_active_at");
       if (!this.isCurrent(generation)) return;
       this.setView({ kind: "picker", sessions });
-    } catch (error) {
-      if (this.isCurrent(generation)) this.renderer.showError(errorMessage(error));
-    }
+    });
   }
 
-  async openManagement(): Promise<void> {
-    const generation = this.nextGeneration();
-    try {
+  openManagement(): Promise<void> {
+    return this.navigate("management", "Loading all canvases…", async (generation) => {
       const canvases = newestFirst(await this.api.listCanvases(), "updated_at");
       if (!this.isCurrent(generation)) return;
       this.setView({ kind: "management", canvases });
-    } catch (error) {
-      if (this.isCurrent(generation)) this.renderer.showError(errorMessage(error));
-    }
+    });
   }
 
-
-  async openGallery(session: Session): Promise<void> {
-    const generation = this.nextGeneration();
-    try {
+  openGallery(session: Session): Promise<void> {
+    return this.navigate(`gallery:${session.id}`, "Loading session canvases…", async (generation) => {
       const artifacts = newestFirst(await this.api.listArtifacts(session.id), "created_at");
       if (!this.isCurrent(generation)) return;
       this.artifactsBySession.set(session.id, artifacts);
       this.setView({ kind: "gallery", session, artifacts });
-    } catch (error) {
-      if (this.isCurrent(generation)) this.renderer.showError(errorMessage(error));
-    }
+    });
   }
+
   openViewer(session: Session, artifact: Artifact): void {
     this.nextGeneration();
     this.setView({ kind: "viewer", session, artifact });
@@ -136,6 +135,7 @@ export class CanvasNavigator {
     if (this.current?.kind === "viewer") {
       const artifacts = this.artifactsBySession.get(this.current.session.id);
       if (artifacts) {
+        this.nextGeneration();
         this.setView({ kind: "gallery", session: this.current.session, artifacts });
       } else {
         void this.openGallery(this.current.session);
@@ -143,6 +143,28 @@ export class CanvasNavigator {
     } else if (this.current?.kind === "gallery" || this.current?.kind === "management") {
       void this.openPicker();
     }
+  }
+
+  private navigate(
+    key: string,
+    message: string,
+    load: (generation: number) => Promise<void>,
+  ): Promise<void> {
+    if (this.pending?.key === key && this.pending.generation === this.generation) return this.pending.promise;
+    const generation = this.nextGeneration();
+    this.renderer.showLoading(message);
+    let promise!: Promise<void>;
+    promise = (async () => {
+      try {
+        await load(generation);
+      } catch (error) {
+        if (this.isCurrent(generation)) this.renderer.showError(errorMessage(error));
+      }
+    })().finally(() => {
+      if (this.pending?.promise === promise) this.pending = null;
+    });
+    this.pending = { key, generation, promise };
+    return promise;
   }
 
   private nextGeneration(): number {
@@ -171,6 +193,7 @@ export class CanvasNavigator {
     }
   }
 }
+
 
 function errorMessage(error: unknown): string {
   return error instanceof Error && /401|unauthor/i.test(error.message)

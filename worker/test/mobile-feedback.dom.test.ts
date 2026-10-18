@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { api, type ArtifactItem, type SessionItem } from "../public/api";
+import { api, type ArtifactItem, type CanvasItem, type SessionItem } from "../public/api";
 import * as interactions from "../public/interactions";
 import type * as AppModule from "../public/app";
 
@@ -218,6 +218,93 @@ describe("navigation cleanup", () => {
     await Promise.resolve();
     expect(button.disabled).toBe(false);
     expect(button.textContent).toBe("Extend 30d");
+  });
+});
+
+describe("viewer open performance", () => {
+  it("defers public-share listing until the action menu opens", async () => {
+    api.listRevisions = vi.fn().mockResolvedValue([{ id: "rev-1", ordinal: 1, created_at: 1, status: "ready" }]);
+    api.listPublicShares = vi.fn().mockResolvedValue([]);
+
+    await app.renderViewer(session, a, 0);
+    expect(api.listPublicShares).not.toHaveBeenCalled();
+
+    element<HTMLButtonElement>("viewer-menu-toggle").click();
+    await vi.waitFor(() => expect(api.listPublicShares).toHaveBeenCalledTimes(1));
+  });
+
+  it("keeps the eager document and safe actions available when revisions fail", async () => {
+    api.listRevisions = vi.fn().mockRejectedValue(new Error("revisions unavailable"));
+    api.extendExpiry = vi.fn().mockResolvedValue(true);
+
+    await app.renderViewer(session, a, 0);
+    const iframe = element<HTMLIFrameElement>("artifact-iframe");
+    expect(iframe.src).toContain("/api/artifacts/artifact-1/revisions/rev-1/document");
+    expect(element("error-screen").classList.contains("hidden")).toBe(true);
+
+    element<HTMLButtonElement>("btn-extend").click();
+    await vi.waitFor(() => expect(api.extendExpiry).toHaveBeenCalledWith("artifact-1"));
+    await vi.waitFor(() => expect(element("revision-status").textContent).toContain("Retry"));
+    expect(element<HTMLButtonElement>("btn-retry-revisions").hidden).toBe(false);
+  });
+  it("closes the viewer menu through the bound back handler", async () => {
+    api.listRevisions = vi.fn().mockResolvedValue([]);
+    await app.renderViewer(session, a, 0);
+    element<HTMLButtonElement>("viewer-menu-toggle").click();
+    expect(element("viewer-menu").hidden).toBe(false);
+
+    element<HTMLButtonElement>("back-to-gallery").click();
+    expect(element("viewer-menu").hidden).toBe(true);
+    expect(element<HTMLButtonElement>("viewer-menu-toggle").getAttribute("aria-expanded")).toBe("false");
+  });
+});
+
+describe("archive search", () => {
+  const managed = (id: string, title: string, sessionTitle: string): CanvasItem => ({
+    ...a,
+    id,
+    title,
+    session_id: `session-${id}`,
+    session_title: sessionTitle,
+    session_last_active_at: 1,
+    session_expires_at: 999,
+    revision_count: 1,
+    current_revision_bytes: 512,
+    updated_at: 1,
+  });
+
+  it("filters locally with a visible count, clear control, and empty state", () => {
+    app.renderManagement([managed("needle", "Needle canvas", "First session"), managed("other", "Other canvas", "Second session")]);
+    const search = element<HTMLInputElement>("canvas-search");
+    search.value = "second";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+
+    expect(element("management-count").textContent).toBe("1 of 2 canvases");
+    expect(document.querySelectorAll(".canvas-card")).toHaveLength(1);
+    expect(element<HTMLButtonElement>("clear-canvas-search").disabled).toBe(false);
+
+    search.value = "missing";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+    expect(document.querySelector(".empty-state")?.textContent).toBe("No canvases match your search.");
+
+    element<HTMLButtonElement>("clear-canvas-search").click();
+    expect(search.value).toBe("");
+    expect(document.querySelectorAll(".canvas-card")).toHaveLength(2);
+  });
+
+  it("deletes in the archive without losing the search", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    api.trashArtifact = vi.fn().mockResolvedValue(true);
+    app.renderManagement([managed("needle", "Needle canvas", "First session"), managed("other", "Other canvas", "Second session")]);
+    const search = element<HTMLInputElement>("canvas-search");
+    search.value = "needle";
+    search.dispatchEvent(new Event("input", { bubbles: true }));
+
+    document.querySelector<HTMLButtonElement>(".canvas-delete")?.click();
+    await vi.waitFor(() => expect(api.trashArtifact).toHaveBeenCalledWith("needle"));
+    expect(element("canvas-management").classList.contains("hidden")).toBe(false);
+    expect(search.value).toBe("needle");
+    expect(document.querySelectorAll(".canvas-card")).toHaveLength(0);
   });
 });
 

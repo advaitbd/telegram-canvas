@@ -24,6 +24,11 @@ h2 { font-size: clamp(1.6rem, 7vw, 2.15rem); font-weight: 650; letter-spacing: -
 .hidden { display: none; }
 .loading-state { min-height: 42vh; place-items: center; color: var(--muted); font-size: .9rem; }
 .action-row, .title-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.search-row { display: grid; gap: 8px; }
+.search-row label { color: var(--muted); font-size: .76rem; }
+.search-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.search-controls input { width: 100%; min-width: 0; min-height: 44px; padding: 0 10px; border: 1px solid var(--line); border-radius: 7px; color: var(--text); background: var(--bg); }
+.search-controls .text-button { min-width: 44px; padding: 0 8px; }
 .text-button { min-height: 44px; padding: 0; border: 0; background: transparent; color: var(--muted); font-size: .86rem; font-weight: 550; text-align: left; transition: color 160ms ease; }
 .text-button:hover { color: var(--text); }
 .text-button:active { transform: translateY(1px); }
@@ -46,7 +51,7 @@ h2 { font-size: clamp(1.6rem, 7vw, 2.15rem); font-weight: 650; letter-spacing: -
 .gallery-share-url { grid-column: 1 / -1; margin: 0 0 10px; }
 .list-item:hover { opacity: .72; }
 .list-item:active, .canvas-open:active { opacity: .5; background: color-mix(in srgb, var(--text) 6%, transparent); }
-.item-title { font-size: 1rem; font-weight: 620; line-height: 1.25; text-wrap: pretty; }
+.item-title { overflow-wrap: anywhere; font-size: 1rem; font-weight: 620; line-height: 1.25; text-wrap: pretty; }
 .item-meta { color: var(--muted); font-size: .76rem; font-variant-numeric: tabular-nums; }
 .empty-state { padding: 44px 8px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: .9rem; line-height: 1.55; text-align: center; text-wrap: pretty; }
 .revision-picker, .secondary-button, .danger-button { min-height: 44px; border-radius: 7px; color: var(--text); }
@@ -60,6 +65,7 @@ h2 { font-size: clamp(1.6rem, 7vw, 2.15rem); font-weight: 650; letter-spacing: -
 .danger-button:hover { background: color-mix(in srgb, var(--danger) 8%, transparent); }
 .share-list { display: grid; gap: 8px; padding-top: 4px; }
 .share-label { color: var(--muted); font-size: .72rem; font-weight: 600; }
+.inline-status { margin: 0; color: var(--muted); font-size: .78rem; line-height: 1.4; }
 .share-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
 .share-meta { display: block; color: var(--muted); font-size: .78rem; line-height: 1.35; }
 .share-detail { min-width: 0; flex: 1; }

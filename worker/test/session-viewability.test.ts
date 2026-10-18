@@ -1,4 +1,5 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { IDENTITY_KEY, makeSessionCookie } from "./helpers/session-cookie";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import { env } from "cloudflare:test";
 import type { D1Database } from "@cloudflare/workers-types";
 
@@ -8,9 +9,8 @@ declare module "cloudflare:test" {
   interface ProvidedEnv { CANVAS_DB: D1Database; }
 }
 
-const cookieFor = (owner: string) => `__Host-canvas_session=test.${owner}`;
-const requestFor = (path: string, owner: string) => new Request(`https://canvas.example${path}`, {
-  headers: { Cookie: cookieFor(owner) },
+const requestFor = async (path: string, owner: string) => new Request(`https://canvas.example${path}`, {
+  headers: { Cookie: await makeSessionCookie(owner) },
 });
 
 describe("viewable Canvas listings", () => {
@@ -37,7 +37,7 @@ describe("viewable Canvas listings", () => {
   });
 
   it("orders eligible sessions and artifacts deterministically and hides non-ready current revisions", async () => {
-    const owner = `owner_viewable_${crypto.randomUUID()}`;
+    const owner = "c".repeat(64);
     const now = Math.floor(Date.now() / 1000);
     const insertSession = (id: string, lastActive: number) => db.prepare(
       "INSERT INTO session_records VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
@@ -61,8 +61,16 @@ describe("viewable Canvas listings", () => {
     await insertRevision("revision-b", "artifact-b", "ready");
     await insertRevision("revision-pending", "artifact-pending", "pending");
     await insertRevision("revision-ready-b", "artifact-ready-b", "ready");
+    for (const id of ["expired", "foreign", "trashed", "failed"]) {
+      await insertSession(`session-${id}`, 300);
+      await insertArtifact(`artifact-${id}`, `session-${id}`, `revision-${id}`, 100);
+      await insertRevision(`revision-${id}`, `artifact-${id}`, id === "failed" ? "failed" : "ready");
+    }
+    await db.prepare("UPDATE session_records SET expires_at = ? WHERE id = 'session-expired'").bind(now - 1).run();
+    await db.prepare("UPDATE session_records SET owner_hash = ? WHERE id = 'session-foreign'").bind("d".repeat(64)).run();
+    await db.prepare("UPDATE artifacts SET trashed_at = ? WHERE id = 'artifact-trashed'").bind(now).run();
 
-    const bootstrap = await (await handleBootstrap(requestFor("/api/bootstrap", owner), db)).json() as {
+    const bootstrap = await (await handleBootstrap(await requestFor("/api/bootstrap", owner), db, IDENTITY_KEY)).json() as {
       canvas: { session: { id: string }; artifact: { id: string; current_revision_id: string } };
     };
     expect(bootstrap.canvas).toEqual({
@@ -70,15 +78,18 @@ describe("viewable Canvas listings", () => {
       artifact: { id: "artifact-ready-b", session_id: "session-b", title: "artifact-ready-b", current_revision_id: "revision-ready-b", trashed_at: null, created_at: 70 },
     });
 
-    const sessions = await (await handleListSessions(requestFor("/api/sessions", owner), db)).json() as {
+    const prepare = vi.fn(db.prepare.bind(db));
+    const measuredDb = { prepare } as unknown as D1Database;
+    const sessions = await (await handleListSessions(await requestFor("/api/sessions", owner), measuredDb, IDENTITY_KEY)).json() as {
       sessions: Array<{ id: string; artifact_count: number }>;
     };
+    expect(prepare).toHaveBeenCalledTimes(1);
     expect(sessions.sessions).toEqual([
       { id: "session-b", title: "session-b", artifact_count: 1, last_active_at: 100, expires_at: now + 3600 },
       { id: "session-a", title: "session-a", artifact_count: 2, last_active_at: 100, expires_at: now + 3600 },
     ]);
 
-    const canvases = await (await handleListCanvases(requestFor("/api/canvases", owner), db)).json() as {
+    const canvases = await (await handleListCanvases(await requestFor("/api/canvases", owner), db, IDENTITY_KEY)).json() as {
       canvases: Array<{ id: string; revision_count: number; current_revision_bytes: number; session_title: string }>;
     };
     expect(canvases.canvases.map(({ id, revision_count, current_revision_bytes, session_title }) => ({ id, revision_count, current_revision_bytes, session_title }))).toEqual([
@@ -87,7 +98,7 @@ describe("viewable Canvas listings", () => {
       { id: "artifact-a", revision_count: 1, current_revision_bytes: 1, session_title: "session-a" },
     ]);
 
-    const artifacts = await (await handleListArtifacts(requestFor("/api/sessions/session-a/artifacts", owner), db, "session-a")).json() as {
+    const artifacts = await (await handleListArtifacts(await requestFor("/api/sessions/session-a/artifacts", owner), db, "session-a", IDENTITY_KEY)).json() as {
       artifacts: Array<{ id: string }>;
     };
     expect(artifacts.artifacts.map(({ id }) => id)).toEqual(["artifact-b", "artifact-a"]);

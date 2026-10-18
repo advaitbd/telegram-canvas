@@ -22,10 +22,10 @@ function token(): string {
 	return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-export async function handleCreateShare(request: Request, db: D1Database, artifactId: string): Promise<Response> {
+export async function handleCreateShare(request: Request, db: D1Database, artifactId: string, identityKey: string): Promise<Response> {
 	const csrfError = csrfCheck(request);
 	if (csrfError) return csrfError;
-	const ownerHash = getOwnerFromCookie(request);
+	const ownerHash = await getOwnerFromCookie(request, identityKey);
 	if (!ownerHash) return jsonError(401, "Unauthorized");
 	const artifact = await Artifacts.getArtifact(db, artifactId, ownerHash);
 	if (!artifact || artifact.trashed_at) return jsonError(404, "Not found");
@@ -58,8 +58,8 @@ export async function handleCreateShare(request: Request, db: D1Database, artifa
 	return jsonOk({ token: winner.token, revision_id: revision.id, url: `${origin}/s/${winner.token}`, expires_at: winner.expires_at }, winner.token === shareToken ? 201 : 200);
 }
 
-export async function handleListShares(request: Request, db: D1Database, artifactId: string): Promise<Response> {
-	const ownerHash = getOwnerFromCookie(request);
+export async function handleListShares(request: Request, db: D1Database, artifactId: string, identityKey: string): Promise<Response> {
+	const ownerHash = await getOwnerFromCookie(request, identityKey);
 	if (!ownerHash) return jsonError(401, "Unauthorized");
 	const artifact = await Artifacts.getArtifact(db, artifactId, ownerHash);
 	if (!artifact) return jsonError(404, "Not found");
@@ -77,10 +77,10 @@ export async function handleListShares(request: Request, db: D1Database, artifac
 	return jsonOk({ shares: newestReady ? rows.map((share) => ({ ...share, revision_id: newestReady, url: `${origin}/s/${share.token}` })) : [] });
 }
 
-export async function handleRevokeShare(request: Request, db: D1Database, artifactId: string, shareToken: string): Promise<Response> {
+export async function handleRevokeShare(request: Request, db: D1Database, artifactId: string, shareToken: string, identityKey: string): Promise<Response> {
 	const csrfError = csrfCheck(request);
 	if (csrfError) return csrfError;
-	const ownerHash = getOwnerFromCookie(request);
+	const ownerHash = await getOwnerFromCookie(request, identityKey);
 	if (!ownerHash) return jsonError(401, "Unauthorized");
 	const result = await db.prepare(`DELETE FROM public_shares WHERE token = ? AND artifact_id = ? AND artifact_id IN (
 		SELECT a.id FROM artifacts a JOIN session_records s ON s.id = a.session_id WHERE a.id = ? AND s.owner_hash = ?)`)

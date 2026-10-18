@@ -21,6 +21,7 @@ const EXPECTED_ORIGIN = "https://canvas.advaitdeshpande.com";
 
 // CSP for document responses — restrictive but allows HTTPS external resources
 const DOCUMENT_CSP = [
+	"sandbox allow-scripts",
 	"default-src 'none'",
 	"script-src https: 'unsafe-inline' 'unsafe-eval'",
 	"style-src https: 'unsafe-inline'",
@@ -57,8 +58,9 @@ export async function handleGetArtifact(
 	request: Request,
 	db: D1Database,
 	artifactId: string,
+	identityKey: string,
 ): Promise<Response> {
-	const ownerHash = getOwnerFromCookie(request);
+	const ownerHash = await getOwnerFromCookie(request, identityKey);
 	if (!ownerHash) return jsonError(401, "Unauthorized");
 
 	const artifact = await Artifacts.getArtifact(db, artifactId, ownerHash);
@@ -74,8 +76,9 @@ export async function handleListRevisions(
 	request: Request,
 	db: D1Database,
 	artifactId: string,
+	identityKey: string,
 ): Promise<Response> {
-	const ownerHash = getOwnerFromCookie(request);
+	const ownerHash = await getOwnerFromCookie(request, identityKey);
 	if (!ownerHash) return jsonError(401, "Unauthorized");
 
 	const artifact = await Artifacts.getArtifact(db, artifactId, ownerHash);
@@ -94,11 +97,11 @@ export async function handleListRevisions(
  */
 export async function handleGetDocument(
 	request: Request,
-	env: { CANVAS_DB: D1Database; CANVAS_ARTIFACTS: R2Bucket },
+	env: { CANVAS_DB: D1Database; CANVAS_ARTIFACTS: R2Bucket; IDENTITY_HMAC_KEY: string },
 	artifactId: string,
 	revisionId: string,
 ): Promise<Response> {
-	const ownerHash = getOwnerFromCookie(request);
+	const ownerHash = await getOwnerFromCookie(request, env.IDENTITY_HMAC_KEY);
 	if (!ownerHash) return jsonError(401, "Unauthorized");
 
 	// Verify artifact ownership
@@ -140,10 +143,10 @@ export async function handleGetDocument(
  */
 export async function handleDownload(
 	request: Request,
-	env: { CANVAS_DB: D1Database; CANVAS_ARTIFACTS: R2Bucket },
+	env: { CANVAS_DB: D1Database; CANVAS_ARTIFACTS: R2Bucket; IDENTITY_HMAC_KEY: string },
 	artifactId: string,
 ): Promise<Response> {
-	const ownerHash = getOwnerFromCookie(request);
+	const ownerHash = await getOwnerFromCookie(request, env.IDENTITY_HMAC_KEY);
 	if (!ownerHash) return jsonError(401, "Unauthorized");
 
 	const artifact = await Artifacts.getArtifact(env.CANVAS_DB, artifactId, ownerHash);
@@ -181,11 +184,12 @@ export async function handleExtend(
 	request: Request,
 	db: D1Database,
 	artifactId: string,
+	identityKey: string,
 ): Promise<Response> {
 	const csrfErr = csrfCheck(request);
 	if (csrfErr) return csrfErr;
 
-	const ownerHash = getOwnerFromCookie(request);
+	const ownerHash = await getOwnerFromCookie(request, identityKey);
 	if (!ownerHash) return jsonError(401, "Unauthorized");
 
 	const artifact = await Artifacts.getArtifact(db, artifactId, ownerHash);
@@ -204,11 +208,12 @@ export async function handleTrash(
 	request: Request,
 	db: D1Database,
 	artifactId: string,
+	identityKey: string,
 ): Promise<Response> {
 	const csrfErr = csrfCheck(request);
 	if (csrfErr) return csrfErr;
 
-	const ownerHash = getOwnerFromCookie(request);
+	const ownerHash = await getOwnerFromCookie(request, identityKey);
 	if (!ownerHash) return jsonError(401, "Unauthorized");
 
 	const trashed = await Artifacts.trashArtifact(db, artifactId, ownerHash);

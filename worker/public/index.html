@@ -20,8 +20,9 @@
       <button id="open-management" class="secondary-button" type="button">Browse all canvases</button>
     </section>
     <section id="canvas-management" class="screen hidden" aria-labelledby="management-title">
-      <div class="action-row"><button id="back-to-management" class="text-button" type="button">← All canvases</button></div>
-      <div class="title-row"><h2 id="management-title">All canvases</h2><p id="management-count" class="canvas-count"></p></div>
+      <div class="action-row"><button id="back-to-management" class="text-button" type="button">← Sessions</button></div>
+      <div class="title-row"><h2 id="management-title">All canvases</h2><p id="management-count" class="canvas-count" role="status" aria-live="polite"></p></div>
+      <div class="search-row"><label for="canvas-search">Search canvases</label><div class="search-controls"><input id="canvas-search" type="search" autocomplete="off" placeholder="Title or session" /><button id="clear-canvas-search" class="text-button" type="button" aria-label="Clear canvas search">Clear</button></div></div>
       <ul id="canvas-list" class="list" aria-label="All canvases"></ul>
     </section>
     <section id="artifact-gallery" class="screen hidden" aria-labelledby="gallery-title">
@@ -31,12 +32,14 @@
     </section>
     <section id="artifact-viewer" class="screen hidden" aria-labelledby="viewer-title">
       <h2 id="viewer-title" class="visually-hidden">Canvas artifact</h2>
-      <div id="iframe-container"><iframe id="artifact-iframe" title="Canvas artifact" sandbox="allow-scripts" loading="lazy"></iframe></div>
+      <div id="iframe-container"><iframe id="artifact-iframe" title="Canvas artifact" sandbox="allow-scripts" loading="eager"></iframe></div>
       <button id="back-to-gallery" class="viewer-control viewer-back" type="button" aria-label="Back to session artifacts">←</button>
       <button id="viewer-menu-toggle" class="viewer-control viewer-menu-toggle" type="button" aria-label="Canvas actions" aria-controls="viewer-menu" aria-expanded="false">•••</button>
       <section id="viewer-menu" class="viewer-menu" aria-label="Canvas actions" hidden>
         <label class="visually-hidden" for="revision-selector">Revision</label>
         <select id="revision-selector" class="revision-picker"></select>
+        <p id="revision-status" class="inline-status" role="status" aria-live="polite" hidden></p>
+        <button id="btn-retry-revisions" class="secondary-button" type="button" hidden>Retry revisions</button>
         <button id="browse-all" class="secondary-button" type="button">Browse all canvases</button>
         <button id="btn-download" class="secondary-button" type="button">Download</button>
         <button id="btn-extend" class="secondary-button" type="button">Extend 30d</button>

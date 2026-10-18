@@ -31,6 +31,7 @@ function fixture(overrides: Partial<CanvasApiLike> = {}) {
   };
   const renderer: CanvasRenderer = {
     render: vi.fn(),
+    showLoading: vi.fn(),
     showError: vi.fn(),
   };
   const backButton: TelegramBackButton = { show: vi.fn(), hide: vi.fn(), onClick: vi.fn(), offClick: vi.fn() };
@@ -65,6 +66,64 @@ describe("CanvasNavigator", () => {
     await vi.waitFor(() => expect(renderer.render).toHaveBeenLastCalledWith({ kind: "picker", sessions: [session("newer", 2), session("older", 1)] }));
     expect(backButton.offClick).toHaveBeenCalled();
     expect(backButton.hide).toHaveBeenCalled();
+  });
+  it("shows immediate pending feedback and coalesces duplicate navigation", async () => {
+    let finish!: (sessions: Session[]) => void;
+    const listSessions = vi.fn().mockReturnValue(new Promise<Session[]>((resolve) => { finish = resolve; }));
+    const { navigator, api, renderer } = fixture({ listSessions });
+
+    const first = navigator.openPicker();
+    const second = navigator.openPicker();
+    expect(api.listSessions).toHaveBeenCalledTimes(1);
+    expect(renderer.showLoading).toHaveBeenCalledWith("Loading sessions…");
+
+    finish([session("newer", 2)]);
+    await Promise.all([first, second]);
+  });
+
+
+  it("does not reuse an invalidated same-target pending load", async () => {
+    let finishFirst!: (value: Artifact[]) => void;
+    const listArtifacts = vi.fn()
+      .mockImplementationOnce(() => new Promise<Artifact[]>((resolve) => { finishFirst = resolve; }))
+      .mockResolvedValueOnce([artifact("fresh", "older")]);
+    const { navigator, renderer } = fixture({ listArtifacts });
+
+    const first = navigator.openGallery(session("older"));
+    navigator.openViewer(session("older"), artifact("current", "older"));
+    const second = navigator.openGallery(session("older"));
+    expect(listArtifacts).toHaveBeenCalledTimes(2);
+
+    finishFirst([artifact("stale", "older")]);
+    await Promise.all([first, second]);
+    expect(renderer.render).toHaveBeenLastCalledWith({
+      kind: "gallery",
+      session: session("older"),
+      artifacts: [artifact("fresh", "older")],
+    });
+  });
+
+  it("invalidates stale work when Back uses a cached gallery", async () => {
+    let resolveOlder!: (value: Artifact[]) => void;
+    const olderArtifacts = new Promise<Artifact[]>((resolve) => { resolveOlder = resolve; });
+    const { navigator, renderer } = fixture({
+      listArtifacts: vi.fn().mockImplementation((id: string) => id === "older"
+        ? olderArtifacts
+        : Promise.resolve([artifact("fresh", "newer")])),
+    });
+
+    await navigator.openGallery(session("newer"));
+    navigator.openViewer(session("newer"), artifact("fresh", "newer"));
+    const staleLoad = navigator.openGallery(session("older"));
+    navigator.back();
+    resolveOlder([artifact("stale", "older")]);
+    await staleLoad;
+
+    expect(renderer.render).toHaveBeenLastCalledWith({
+      kind: "gallery",
+      session: session("newer"),
+      artifacts: [artifact("fresh", "newer")],
+    });
   });
 
   it("does not repaint with a stale async gallery response", async () => {

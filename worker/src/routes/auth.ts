@@ -12,8 +12,8 @@
 
 import type { D1Database } from "@cloudflare/workers-types";
 import { validateTelegramInitData } from "../auth/telegram";
-import { deriveOwnerHash } from "../auth/identity";
-import { jsonError, createSessionCookie, SECURITY_HEADERS } from "../lib/http";
+import { deriveOwnerHash, importIdentityKey, hexToBytes, bytesToHex } from "../auth/identity";
+import { jsonError, createSessionCookie, parseSessionCookie, SECURITY_HEADERS } from "../lib/http";
 
 const SESSION_COOKIE_TTL_SECONDS = 3600; // 1 hour
 
@@ -43,9 +43,9 @@ export async function handleTelegramAuth(
 		const ownerHash = await deriveOwnerHash(userId, env.IDENTITY_HMAC_KEY);
 
 		// Issue session cookie
-		const sessionId = crypto.randomUUID();
-		const expiresAt = new Date(Date.now() + SESSION_COOKIE_TTL_SECONDS * 1000);
-		const cookieValue = `${sessionId}.${ownerHash}`;
+		const expires = Math.floor(Date.now() / 1000) + SESSION_COOKIE_TTL_SECONDS;
+		const expiresAt = new Date(expires * 1000);
+		const cookieValue = await signSessionCookieValue(ownerHash, env.IDENTITY_HMAC_KEY, expires);
 
 		return new Response(
 			JSON.stringify({ ok: true, user: { id: validated.user.id, first_name: validated.user.first_name } }),
@@ -68,21 +68,29 @@ export async function handleTelegramAuth(
 	}
 }
 
-/**
- * Parse the owner hash from the session cookie.
- * Returns null if the cookie is missing or malformed.
- */
-export function getOwnerFromCookie(request: Request): string | null {
-	const cookieHeader = request.headers.get("Cookie") ?? "";
-	for (const part of cookieHeader.split(";")) {
-		const trimmed = part.trim();
-		if (trimmed.startsWith("__Host-canvas_session=")) {
-			const value = trimmed.slice("__Host-canvas_session=".length);
-			const dot = value.indexOf(".");
-			if (dot > 0) {
-				return value.slice(dot + 1);
-			}
-		}
-	}
-	return null;
+const SESSION_COOKIE_DOMAIN = "canvas-session-cookie:";
+
+/** Sign every session field in a domain distinct from identity derivation. */
+export async function signSessionCookieValue(ownerHash: string, identityKey: string, expires: number): Promise<string> {
+	const payload = `v1.${crypto.randomUUID()}.${ownerHash}.${expires}`;
+	const key = await importIdentityKey(identityKey);
+	const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(SESSION_COOKIE_DOMAIN + payload));
+	return `${payload}.${bytesToHex(new Uint8Array(signature))}`;
+}
+
+/** Return an owner only after validating the cookie's signature and server-side TTL. */
+export async function getOwnerFromCookie(request: Request, identityKey: string): Promise<string | null> {
+	const value = parseSessionCookie(request);
+	if (!value) return null;
+	const fields = /^v1\.([a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12})\.([a-f0-9]{64})\.([1-9][0-9]{0,15})\.([a-f0-9]{64})$/.exec(value);
+	if (!fields) return null;
+	const expires = Number(fields[3]);
+	const now = Math.floor(Date.now() / 1000);
+	if (!Number.isSafeInteger(expires) || expires <= now || expires > now + SESSION_COOKIE_TTL_SECONDS) return null;
+	const key = await importIdentityKey(identityKey);
+	const valid = await crypto.subtle.verify(
+		"HMAC", key, hexToBytes(fields[4]),
+		new TextEncoder().encode(SESSION_COOKIE_DOMAIN + value.slice(0, value.lastIndexOf("."))),
+	);
+	return valid ? fields[2] : null;
 }
